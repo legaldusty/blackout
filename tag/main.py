@@ -1,69 +1,103 @@
+import os
+import time
+
 import bluetooth
 from machine import Pin, Timer
 
 CHIP_HZ = 15
-CHIPS = {
-    "hide_all": (0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1),
-    "hide_face": (1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0),
-}
-POLICY_BYTE = {"hide_all": 1, "hide_face": 2}
+CODES = (
+    (0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1),
+    (0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1),
+    (0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 1, 0, 1),
+    (0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1),
+    (0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 0, 1),
+    (0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1),
+    (0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1),
+    (0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1),
+)
+HIDE_ALL = 1
+HIDE_FACE = 2
 
-EMITTER_PIN = 5
-INDICATOR_PIN = 2
-ACTIVE_PIN = 18
-MODE_PIN = 19
-
+COMPANY_ID = 0xFFFF
+BEACON_PREFIX = bytes((0x4E, 0x50, 0x02))
 ADVERTISE_INTERVAL_US = 100_000
-BEACON_PREFIX = bytes((0xFF, 0xFF, 0x4E, 0x50, 0x01))
+ROTATE_SECONDS = 300
 
-emitter = Pin(EMITTER_PIN, Pin.OUT, value=0)
-indicator = Pin(INDICATOR_PIN, Pin.OUT, value=0)
-active_switch = Pin(ACTIVE_PIN, Pin.IN, Pin.PULL_UP)
-mode_switch = Pin(MODE_PIN, Pin.IN, Pin.PULL_UP)
+BOARDS = {
+    "ESP32S3": {"emitters": (1, 2, 3, 4), "indicator": 21, "indicator_on": 0, "active": 5, "mode": 6},
+    "ESP32": {"emitters": (25, 26, 27, 33), "indicator": 2, "indicator_on": 1, "active": 18, "mode": 19},
+}
+
+
+def board():
+    machine_name = os.uname().machine.upper()
+    for key in ("ESP32S3", "ESP32"):
+        if key in machine_name:
+            return BOARDS[key]
+    return BOARDS["ESP32"]
+
+
+wiring = board()
+emitters = [Pin(number, Pin.OUT, value=0) for number in wiring["emitters"]]
+indicator = Pin(wiring["indicator"], Pin.OUT, value=1 - wiring["indicator_on"])
+active_switch = Pin(wiring["active"], Pin.IN, Pin.PULL_UP)
+mode_switch = Pin(wiring["mode"], Pin.IN, Pin.PULL_UP)
 
 radio = bluetooth.BLE()
-state = {"index": 0, "policy": None}
+state = {"index": 0, "wish": None, "code": 0, "picked": 0}
 
 
-def wanted_policy():
+def pick_code():
+    state["code"] = os.urandom(1)[0] % len(CODES)
+    state["picked"] = time.time()
+    for mode in (3, 1):
+        try:
+            radio.config(addr_mode=mode)
+            return
+        except (ValueError, OSError):
+            continue
+
+
+def wanted_wish():
     if active_switch.value() == 0:
         return None
-    return "hide_all" if mode_switch.value() == 1 else "hide_face"
+    return HIDE_ALL if mode_switch.value() == 1 else HIDE_FACE
 
 
-def advertise(policy):
-    if policy is None:
+def advertise(wish):
+    if wish is None:
         radio.gap_advertise(None)
         return
-    body = BEACON_PREFIX + bytes((POLICY_BYTE[policy],))
+    body = bytes((COMPANY_ID & 0xFF, COMPANY_ID >> 8)) + BEACON_PREFIX + bytes((wish, state["code"]))
     payload = bytes((2, 0x01, 0x06, len(body) + 1, 0xFF)) + body
     radio.gap_advertise(ADVERTISE_INTERVAL_US, adv_data=payload, connectable=False)
 
 
+def shine(on):
+    for pin in emitters:
+        pin.value(on)
+    indicator.value(wiring["indicator_on"] if on else 1 - wiring["indicator_on"])
+
+
 def tick(_):
-    policy = wanted_policy()
-    if policy != state["policy"]:
-        state["policy"] = policy
+    wish = wanted_wish()
+    due = time.time() - state["picked"] >= ROTATE_SECONDS and state["index"] == 0
+    if wish != state["wish"] or (due and wish is not None):
+        if due or state["wish"] is None:
+            pick_code()
+        state["wish"] = wish
         state["index"] = 0
-        advertise(policy)
-    if policy is None:
-        emitter.value(0)
-        indicator.value(0)
+        advertise(wish)
+    if wish is None:
+        shine(0)
         return
-    chip = CHIPS[policy][state["index"]]
-    emitter.value(chip)
-    indicator.value(chip)
-    state["index"] = (state["index"] + 1) % len(CHIPS[policy])
+    shine(CODES[state["code"]][state["index"]])
+    state["index"] = (state["index"] + 1) % len(CODES[state["code"]])
 
 
 def start():
     radio.active(True)
-    for mode in (3, 1):
-        try:
-            radio.config(addr_mode=mode)
-            break
-        except (ValueError, OSError):
-            continue
+    pick_code()
     Timer(0).init(freq=CHIP_HZ, mode=Timer.PERIODIC, callback=tick)
 
 
