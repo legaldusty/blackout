@@ -50,6 +50,7 @@ def main() -> None:
     parser.add_argument("--align", type=str, default=None)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--relay", type=str, default=None)
     args = parser.parse_args()
 
     from eye.detector import PeopleDetector
@@ -67,6 +68,12 @@ def main() -> None:
     listener.start()
     outbox = Outbox(args.width, args.height)
     start(outbox, args.port)
+    if args.relay:
+        import os
+
+        from eye.uplink import Uplink
+
+        Uplink(outbox, args.relay, os.environ["BLACKOUT_KEY"]).start()
     try:
         run(source, listener, Pipeline(PeopleDetector(), settings), outbox, args.show)
     finally:

@@ -57,6 +57,12 @@ def test_stalled_camera_shows_black(monkeypatch):
     assert state["live"] is False and state["stalled"] is True
 
 
+def test_camera_that_never_started_is_off_not_stalled():
+    jpeg, state = Outbox(WIDTH, HEIGHT).latest()
+    assert decode(jpeg).max() < 10
+    assert state == {"live": False, "stalled": False}
+
+
 def test_server_hands_out_the_frame_and_the_state():
     outbox = Outbox(WIDTH, HEIGHT)
     outbox.publish(np.full((HEIGHT, WIDTH, 3), 128, dtype=np.uint8), {"erased": 3})
@@ -69,3 +75,45 @@ def test_server_hands_out_the_frame_and_the_state():
         server.shutdown()
     assert state["erased"] == 3 and state["live"] is True
     assert abs(float(decode(jpeg).mean()) - 128) < 4
+
+
+def test_relay_takes_frames_only_with_the_key():
+    from eye.uplink import Uplink
+
+    relay_box = Outbox(WIDTH, HEIGHT)
+    relay = start(relay_box, 0, host="127.0.0.1", key="secret", site=None)
+    address = f"http://127.0.0.1:{relay.server_address[1]}"
+    camera_box = Outbox(WIDTH, HEIGHT)
+    camera_box.publish(np.full((HEIGHT, WIDTH, 3), 90, dtype=np.uint8), {"erased": 2})
+    try:
+        wrong = Uplink(camera_box, address, "guess")
+        try:
+            wrong.send_once()
+            refused = False
+        except OSError:
+            refused = True
+        assert refused and relay_box.latest()[1]["live"] is False
+        assert Uplink(camera_box, address, "secret").send_once() is True
+        state = json.loads(urllib.request.urlopen(address + "/state.json", timeout=3).read())
+    finally:
+        relay.shutdown()
+    assert state["erased"] == 2 and state["live"] is True
+
+
+def test_site_files_are_served_and_nothing_outside_the_folder(tmp_path):
+    (tmp_path / "index.html").write_text("<p>hello</p>")
+    (tmp_path / "notes.txt").write_text("private")
+    server = start(Outbox(WIDTH, HEIGHT), 0, host="127.0.0.1", site=tmp_path)
+    address = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        page = urllib.request.urlopen(address + "/", timeout=3).read()
+        blocked = []
+        for path in ("/notes.txt", "/../eye/app.py", "/%2e%2e/.env"):
+            try:
+                urllib.request.urlopen(address + path, timeout=3)
+                blocked.append(False)
+            except OSError:
+                blocked.append(True)
+    finally:
+        server.shutdown()
+    assert page == b"<p>hello</p>" and all(blocked)
