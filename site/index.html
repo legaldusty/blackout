@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackout</title>
+<meta name="description" content="A badge that tells cameras to leave you out, and a camera that listens.">
+<meta name="theme-color" content="#050505">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="mark.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./" aria-label="Blackout">black<span class="lens"></span>ut</a>
+  <nav class="views" aria-label="Views">
+    <button type="button" data-view="camera" class="on">Camera</button>
+    <button type="button" data-view="proof">Proof</button>
+    <button type="button" data-view="how">How it works</button>
+  </nav>
+</header>
+
+<main>
+  <section id="camera" class="view on">
+    <figure class="feed" id="feed">
+      <img id="frame" alt="The picture that leaves the camera" width="1280" height="720">
+      <figcaption id="feedNote"></figcaption>
+    </figure>
+    <div id="status">
+      <h1 id="headline">Looking for the camera</h1>
+      <p class="lede" id="detail">One moment.</p>
+    </div>
+    <dl class="facts" id="facts">
+      <div><dt>tags heard</dt><dd id="factAsking">0</dd></div>
+      <div><dt>people erased</dt><dd id="factErased">0</dd></div>
+      <div><dt>frames a second</dt><dd id="factRate">0</dd></div>
+    </dl>
+    <button type="button" class="solid" id="tourStart">Take the 30 second tour <i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+  </section>
+
+  <section id="proof" class="view">
+    <h1>Numbers we measured ourselves</h1>
+    <p class="lede" id="proofLede">Every number here comes from our own recorded test runs. The conditions are listed under each one.</p>
+    <div id="proofRows" class="rows"></div>
+  </section>
+
+  <section id="how" class="view">
+    <h1>Not pictured, by choice</h1>
+    <p class="lede">Smart glasses and home robots film the people around them and send that video away. Blackout lets those people say no, and makes the camera listen.</p>
+    <ol class="steps">
+      <li><strong>The tag speaks twice.</strong> Over Bluetooth it says a tag is here and which blink pattern it is using. With infrared light, which people cannot see, it blinks that pattern.</li>
+      <li><strong>The camera has two eyes.</strong> One films the scene. The other sits behind a filter that blocks visible light, so it sees almost nothing except tags.</li>
+      <li><strong>It matches light to a person.</strong> The camera only looks for patterns it heard announced, then finds the person the light is on.</li>
+      <li><strong>It erases them before anything leaves.</strong> The video runs 2.5 seconds behind, so the erase covers the moment before the tag was read.</li>
+    </ol>
+    <h2>Try the rules yourself</h2>
+    <p class="lede">This part is a simulation, not the live camera. The person in the middle is wearing a tag.</p>
+    <div class="sim">
+      <figure><canvas id="simSees" width="640" height="360"></canvas><figcaption>What the camera sees <span class="plain">Simulated</span></figcaption></figure>
+      <figure><canvas id="simLeaves" width="640" height="360"></canvas><figcaption>What leaves the camera <span class="plain">Simulated</span></figcaption></figure>
+    </div>
+    <div class="switches">
+      <label><input type="checkbox" id="simTag" checked> Tag switched on</label>
+      <label><input type="checkbox" id="simBack"> Tag covered or back turned</label>
+      <label><input type="checkbox" id="simRun" checked> Camera software running</label>
+    </div>
+    <p class="lede" id="simWhy"></p>
+    <h2>What we say out loud</h2>
+    <ul class="plainlist">
+      <li>Only cameras that choose, or are required, to honor the tag will obey it. It is a standard, like a crosswalk signal.</li>
+      <li>The tag hides who you are, not what you do. A silhouette and its actions stay visible.</li>
+      <li>The tag has no serial number. Its pattern and its radio address change every few minutes, so it cannot be used to follow you.</li>
+      <li>Researchers at UC Irvine proposed bystander signals in 2025. Blackout is our working take: radio and light together, a whole-body erase, and a camera that goes black when it is unsure.</li>
+    </ul>
+  </section>
+</main>
+
+<dialog id="welcome">
+  <h2>You are looking through a camera that honors Blackout</h2>
+  <p>People wearing a Blackout tag are erased inside the camera. Nothing unerased is ever saved or sent, so this page never receives it.</p>
+  <div class="actions">
+    <button type="button" class="solid" id="welcomeTour">Take the tour <i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+    <button type="button" class="quiet" id="welcomeSkip">Just look around</button>
+  </div>
+</dialog>
+
+<aside id="tour" hidden>
+  <p id="tourText"></p>
+  <div class="actions">
+    <button type="button" class="solid" id="tourNext">Next <i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+    <button type="button" class="quiet" id="tourEnd">End tour</button>
+  </div>
+</aside>
+
+<script src="app.js"></script>
+</body>
+</html>
