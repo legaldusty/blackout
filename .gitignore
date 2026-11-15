@@ -12,3 +12,4 @@ models/
 recordings/
 firmware/
 case/*.png
+align.npy

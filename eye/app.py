@@ -1,5 +1,6 @@
 import argparse
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -47,6 +48,7 @@ def main() -> None:
     parser.add_argument("--one-camera", action="store_true")
     parser.add_argument("--webcam", action="store_true")
     parser.add_argument("--spot-level", type=int, default=None)
+    parser.add_argument("--tag-upside-down", action="store_true")
     parser.add_argument("--scene", type=int, default=0)
     parser.add_argument("--infrared", type=int, default=None)
     parser.add_argument("--port", type=int, default=8000)
@@ -64,10 +66,14 @@ def main() -> None:
     from eye.watch import Background
 
     settings = Settings()
+    saved = Path(__file__).resolve().parents[1] / "align.npy"
     if args.align:
         settings.to_scene = np.load(args.align)
+    elif args.webcam and saved.exists():
+        settings.to_scene = np.load(saved)
     if args.webcam:
         source = TagEyeWithWebcam(width=args.width, height=args.height)
+        source.upside_down(args.tag_upside_down)
     elif args.pi:
         source = PiPair(infrared_port=None if args.one_camera else 1, width=args.width, height=args.height)
     else:

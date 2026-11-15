@@ -156,6 +156,7 @@ class TagEyeWithWebcam:
         from picamera2 import Picamera2
 
         self._webcam = Webcam(webcam, width, height)
+        self._turn = False
         self._tag = Picamera2(tag_port)
         self._tag.configure(
             self._tag.create_video_configuration(
@@ -173,7 +174,13 @@ class TagEyeWithWebcam:
 
     def read(self):
         infrared = self._tag.capture_array("main")
-        return time.monotonic(), self._webcam.latest(), np.ascontiguousarray(infrared[: self._height])
+        gray = infrared[: self._height]
+        if self._turn:
+            gray = gray[::-1, ::-1]
+        return time.monotonic(), self._webcam.latest(), np.ascontiguousarray(gray)
+
+    def upside_down(self, turned: bool) -> None:
+        self._turn = turned
 
     def close(self) -> None:
         self._tag.stop()

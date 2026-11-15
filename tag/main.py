@@ -32,6 +32,7 @@ HOLD_TICKS = 18
 BREATH_TICKS = 45
 BREATH_LOW = 6000
 BREATH_HIGH = 65535
+LINEUP_TICKS = CHIP_HZ * 120
 
 
 def board():
@@ -50,7 +51,7 @@ is_room = "room" in os.listdir()
 button = Pin(wiring["button"], Pin.IN, Pin.PULL_UP)
 
 radio = bluetooth.BLE()
-state = {"index": 0, "wish": None, "code": 0, "picked": 0, "active": True, "face_only": False, "held": 0, "flash": 0, "breath": 0}
+state = {"index": 0, "wish": None, "code": 0, "picked": 0, "active": True, "face_only": False, "held": 0, "flash": 0, "breath": 0, "age": 0}
 
 
 def pick_code():
@@ -99,8 +100,13 @@ def shine(on):
         pin.value(0 if is_room else on)
 
 
-def show_status(wish):
+def show_status(wish, chip):
     onboard.value(0 if wish is None else 1)
+    if state["age"] < LINEUP_TICKS:
+        state["age"] += 1
+        if wish is not None and not is_room:
+            status.duty_u16(BREATH_HIGH if chip else 0)
+            return
     if state["flash"] > 0:
         state["flash"] -= 1
         status.duty_u16(BREATH_HIGH if (state["flash"] // 3) % 2 else 0)
@@ -124,11 +130,12 @@ def tick(_):
         state["wish"] = wish
         state["index"] = 0
         advertise(wish)
-    show_status(wish)
+    chip = 0 if wish is None else CODES[state["code"]][state["index"]]
+    show_status(wish, chip)
     if wish is None:
         shine(0)
         return
-    shine(CODES[state["code"]][state["index"]])
+    shine(chip)
     state["index"] = (state["index"] + 1) % len(CODES[state["code"]])
 
 
