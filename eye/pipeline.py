@@ -222,4 +222,6 @@ class Pipeline:
                     continue
                 erase_person(image, person, policy)
                 erased.add(person.track)
+        if not holding and len(erased) < frame.asking:
+            return Released(frame.seconds, np.zeros_like(frame.scene), 0, True, frame.asking, False, frame.room)
         return Released(frame.seconds, image, len(erased), holding, frame.asking, False, frame.room)

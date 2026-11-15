@@ -127,6 +127,20 @@ def test_losing_track_of_a_tagged_person_puts_everyone_on_hold():
     assert max(scene.visible_fraction(tagged, r) for r in visible_frames) == 0.0
 
 
+def test_a_frame_that_covers_fewer_people_than_asked_is_not_shown():
+    from eye.pipeline import _Frame, _Sighting
+
+    scene = Scene([Actor("a", 100)])
+    pipeline = build(scene)
+    run(scene, pipeline, 1.0)
+    picture = np.full((240, 320, 3), 90, dtype=np.uint8)
+    pipeline._sightings.append(_Sighting(50.0, []))
+    shown = pipeline._compose(_Frame(50.0, picture, 0, False))
+    assert shown.image.max() == 90 and not shown.holding
+    hidden = pipeline._compose(_Frame(50.0, picture, 1, False))
+    assert hidden.image.max() == 0 and hidden.holding and hidden.erased == 0
+
+
 def test_frames_are_never_altered_in_place():
     scene = Scene([Actor("p", 120, code=1)])
     pipeline = build(scene)
