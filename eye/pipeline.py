@@ -200,10 +200,13 @@ class Pipeline:
             out.append(self._compose(self._queue.popleft()))
         return out
 
+    def _dark(self, frame: _Frame, holding: bool = False, tripped: bool = False) -> Released:
+        return Released(frame.seconds, np.zeros_like(frame.scene), 0, holding, frame.asking, tripped, frame.room)
+
     def _compose(self, frame: _Frame) -> Released:
         sightings = [] if self.tripped is not None else self._around(frame.seconds)
         if not sightings:
-            return Released(frame.seconds, np.zeros_like(frame.scene), 0, False, frame.asking, True, frame.room)
+            return self._dark(frame, tripped=True)
         image = frame.scene.copy()
         holding = self._holding(frame.seconds)
         erased: set[int] = set()
@@ -223,5 +226,5 @@ class Pipeline:
                 erase_person(image, person, policy)
                 erased.add(person.track)
         if not holding and len(erased) < frame.asking:
-            return Released(frame.seconds, np.zeros_like(frame.scene), 0, True, frame.asking, False, frame.room)
+            return self._dark(frame, holding=True)
         return Released(frame.seconds, image, len(erased), holding, frame.asking, False, frame.room)
