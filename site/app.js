@@ -14,9 +14,9 @@ tabs.forEach((tab) => tab.addEventListener("click", () => show(tab.dataset.view)
 function describe(state) {
   if (!state || (!state.live && !state.stalled)) {
     return {
-      headline: "The camera is off right now",
-      detail: "When it is on, this page shows the only video that leaves it. The pictures under How it works are there any time.",
-      note: "camera off",
+      headline: "The live camera is not shown on this page",
+      detail: "Live video stays on the screen next to the camera, so nobody near it ends up on the internet. Proof and How it works are open here any time.",
+      note: "no live video here",
     };
   }
   if (state.stalled || state.tripped) {
