@@ -24,9 +24,10 @@ ADVERTISE_INTERVAL_US = 100_000
 ROTATE_SECONDS = 300
 
 BOARDS = {
-    "ESP32S3": {"emitters": (1, 2, 3, 4), "indicator": 21, "indicator_on": 0, "active": 5, "mode": 6},
-    "ESP32": {"emitters": (25, 26, 27, 33), "indicator": 2, "indicator_on": 1, "active": 18, "mode": 19},
+    "ESP32S3": {"emitters": (1, 2, 3, 4), "status": 5, "button": 0},
+    "ESP32": {"emitters": (25, 26, 27, 33), "status": 19, "button": 0},
 }
+HOLD_TICKS = 18
 
 
 def board():
@@ -39,12 +40,11 @@ def board():
 
 wiring = board()
 emitters = [Pin(number, Pin.OUT, value=0) for number in wiring["emitters"]]
-indicator = Pin(wiring["indicator"], Pin.OUT, value=1 - wiring["indicator_on"])
-active_switch = Pin(wiring["active"], Pin.IN, Pin.PULL_UP)
-mode_switch = Pin(wiring["mode"], Pin.IN, Pin.PULL_UP)
+status = Pin(wiring["status"], Pin.OUT, value=0)
+button = Pin(wiring["button"], Pin.IN, Pin.PULL_UP)
 
 radio = bluetooth.BLE()
-state = {"index": 0, "wish": None, "code": 0, "picked": 0}
+state = {"index": 0, "wish": None, "code": 0, "picked": 0, "active": True, "face_only": False, "held": 0, "flash": 0}
 
 
 def pick_code():
@@ -58,10 +58,23 @@ def pick_code():
             continue
 
 
+def read_button():
+    if button.value() == 0:
+        state["held"] += 1
+        if state["held"] == HOLD_TICKS:
+            state["face_only"] = not state["face_only"]
+            state["active"] = True
+            state["flash"] = 12
+        return
+    if 0 < state["held"] < HOLD_TICKS:
+        state["active"] = not state["active"]
+    state["held"] = 0
+
+
 def wanted_wish():
-    if active_switch.value() == 0:
+    if not state["active"]:
         return None
-    return HIDE_ALL if mode_switch.value() == 1 else HIDE_FACE
+    return HIDE_FACE if state["face_only"] else HIDE_ALL
 
 
 def advertise(wish):
@@ -76,10 +89,18 @@ def advertise(wish):
 def shine(on):
     for pin in emitters:
         pin.value(on)
-    indicator.value(wiring["indicator_on"] if on else 1 - wiring["indicator_on"])
+
+
+def show_status(wish):
+    if state["flash"] > 0:
+        state["flash"] -= 1
+        status.value((state["flash"] // 3) % 2)
+        return
+    status.value(0 if wish is None else 1)
 
 
 def tick(_):
+    read_button()
     wish = wanted_wish()
     due = time.time() - state["picked"] >= ROTATE_SECONDS and state["index"] == 0
     if wish != state["wish"] or (due and wish is not None):
@@ -88,6 +109,7 @@ def tick(_):
         state["wish"] = wish
         state["index"] = 0
         advertise(wish)
+    show_status(wish)
     if wish is None:
         shine(0)
         return
