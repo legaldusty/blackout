@@ -60,6 +60,7 @@ class Pipeline:
     tripped: str | None = None
     _sightings: deque = field(default_factory=deque)
     _matches: dict[int, _Match] = field(default_factory=dict)
+    _moved: dict[int, tuple[int, float]] = field(default_factory=dict)
     _protected: dict[int, tuple[float, Policy]] = field(default_factory=dict)
     _born: dict[int, float] = field(default_factory=dict)
     _hold_since: float | None = None
@@ -132,6 +133,9 @@ class Pipeline:
                 if was_holding:
                     self._hold_births.append(self._born[owner.track])
 
+        if fresh:
+            self._follow(seconds, latest.people, announced)
+
         surplus = room or any(count > matched[code] for code, count in announced.items())
         if surplus and self._hold_since is None:
             self._hold_since = seconds
@@ -148,14 +152,31 @@ class Pipeline:
         self._held = [span for span in self._held if span[1] >= horizon]
         self._protected = {k: v for k, v in self._protected.items() if v[0] >= horizon}
 
-    def _owner(self, x: float, y: float, people: list[Person]) -> Person | None:
+    def _follow(self, seconds: float, people: list[Person], announced: Counter) -> None:
+        holders = {match.code: track for track, match in self._matches.items() if announced[match.code] == 1}
+        for sighted in self.spots.read(list(holders)):
+            holder = holders.get(sighted.code)
+            owner = self._owner(sighted.x, sighted.y, people, anyone=True)
+            if holder is None or owner is None or owner.track == holder:
+                self._moved.pop(sighted.code, None)
+                continue
+            first = self._moved.get(sighted.code)
+            if first is None or first[0] != owner.track:
+                self._moved[sighted.code] = (owner.track, seconds)
+            elif seconds - first[1] >= 1.0:
+                old = self._matches.pop(holder)
+                self._protected[holder] = (seconds, old.policy)
+                self._matches[owner.track] = _Match(sighted.code, old.policy)
+                del self._moved[sighted.code]
+
+    def _owner(self, x: float, y: float, people: list[Person], anyone: bool = False) -> Person | None:
         if self.settings.to_scene is not None:
             moved = self.settings.to_scene @ np.array([x, y, 1.0])
             x, y = float(moved[0] / moved[2]), float(moved[1] / moved[2])
         best = None
         best_rank = None
         for person in people:
-            if person.track in self._matches or person.coasting:
+            if person.coasting or (person.track in self._matches and not anyone):
                 continue
             box = person.box
             pad_x = (box[2] - box[0]) * self.settings.tag_reach

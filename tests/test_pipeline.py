@@ -141,6 +141,20 @@ def test_a_frame_that_covers_fewer_people_than_asked_is_not_shown():
     assert hidden.image.max() == 0 and hidden.holding and hidden.erased == 0
 
 
+def test_handing_the_badge_to_someone_else_moves_the_erase():
+    first = Actor("first", 40, code=2, light_until=5.0, radio_until=5.0)
+    second = Actor("second", 220, code=2, light_from=5.0, radio_from=5.0)
+    scene = Scene([first, second])
+    released = run(scene, build(scene), 14.0)
+    early = [r for r in released if 3.0 < r.seconds < 4.5]
+    late = [r for r in released if r.seconds > 9.5]
+    assert early and late
+    assert max(scene.visible_fraction(first, r) for r in early) == 0.0
+    assert min(scene.visible_fraction(second, r) for r in early) == 1.0
+    assert max(scene.visible_fraction(second, r) for r in late) == 0.0
+    assert min(scene.visible_fraction(first, r) for r in late) == 1.0
+
+
 def test_frames_are_never_altered_in_place():
     scene = Scene([Actor("p", 120, code=1)])
     pipeline = build(scene)
