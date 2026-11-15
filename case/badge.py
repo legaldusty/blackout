@@ -28,7 +28,9 @@ CHEEK = (85.28 - 4.1, -30.06)
 BUTTON = (85.28 - 35.15, -49.41)
 BUTTON_TOP = 16.15
 USB = (35.6, 49.6)
-CUT_LOW, CUT_HIGH = FACE - 0.6, FACE + 0.2
+RISE = 0.8
+RELIEF = (FACE - 0.05, FACE + RISE)
+PEGS = ((1.3, -51.9), (83.9, -51.8), (CENTER - 9.2, 8.7), (CENTER + 9.2, 8.7))
 
 
 def link(name, mesh):
@@ -94,20 +96,46 @@ def cut(body, tool):
     combine(body, tool, "DIFFERENCE")
 
 
-def ring(center, inner, outer):
-    shape = disc("ring", center, outer, CUT_LOW, CUT_HIGH)
-    combine(shape, disc("hole", center, inner, CUT_LOW - 0.3, CUT_HIGH + 0.3), "DIFFERENCE")
+def ring(center, inner, outer, span=RELIEF):
+    shape = disc("ring", center, outer, span[0], span[1])
+    combine(shape, disc("hole", center, inner, span[0] - 0.3, span[1] + 0.3), "DIFFERENCE")
     return shape
 
 
-def arc(center, inner, outer, upper):
-    shape = ring(center, inner, outer)
-    keep_low, keep_high = (center[1], center[1] + outer + 1) if upper else (center[1] - outer - 1, center[1])
-    combine(shape, box("half", center[0] - outer - 1, center[0] + outer + 1, keep_low, keep_high, CUT_LOW - 0.5, CUT_HIGH + 0.5), "INTERSECT")
+def arc(center, inner, outer, upper, span=RELIEF):
+    shape = ring(center, inner, outer, span)
+    low, high = (center[1], center[1] + outer + 1) if upper else (center[1] - outer - 1, center[1])
+    combine(shape, box("half", center[0] - outer - 1, center[0] + outer + 1, low, high, span[0] - 0.5, span[1] + 0.5), "INTERSECT")
     return shape
 
 
-def word(body, text, center, width):
+def bar(a, b, width, span=RELIEF):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    nx, ny = -dy / length * width / 2, dx / length * width / 2
+    shape = extrude("bar", [(a[0] - nx, a[1] - ny), (b[0] - nx, b[1] - ny), (b[0] + nx, b[1] + ny), (a[0] + nx, a[1] + ny)], span[0], span[1])
+    for end in (a, b):
+        combine(shape, disc("cap", end, width / 2, span[0], span[1], 24), "UNION")
+    return shape
+
+
+def poly(points, span=RELIEF):
+    return extrude("poly", points, span[0], span[1])
+
+
+def merged(name, shapes):
+    first = shapes[0]
+    first.name = name
+    for other in shapes[1:]:
+        combine(first, other, "UNION")
+    return first
+
+
+def mirror(point):
+    return (2 * CENTER - point[0], point[1])
+
+
+def word_mesh(text, center, width, z_low, z_high, flip):
     curve = bpy.data.curves.new("word", "FONT")
     curve.body = text
     curve.font = bpy.data.fonts.load(FONT)
@@ -126,107 +154,168 @@ def word(body, text, center, width):
     scale = width / (max(xs) - min(xs))
     mid_x, mid_y = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
     for v in holder.data.vertices:
-        v.co.x = center[0] + (v.co.x - mid_x) * scale
+        v.co.x = center[0] + (-1 if flip else 1) * (v.co.x - mid_x) * scale
         v.co.y = center[1] + (v.co.y - mid_y) * scale
-        v.co.z = CUT_HIGH if v.co.z > 0 else CUT_LOW
+        v.co.z = z_high if v.co.z > 0 else z_low
     work = bmesh.new()
     work.from_mesh(holder.data)
     bmesh.ops.remove_doubles(work, verts=work.verts, dist=0.001)
     bmesh.ops.recalc_face_normals(work, faces=work.faces)
     work.to_mesh(holder.data)
     work.free()
-    cut(body, holder)
+    return holder
 
 
 def tray():
     body = extrude("badge_tray", rounded(OUT_LEFT, OUT_RIGHT, OUT_BOTTOM, OUT_TOP, 5.0), -FLOOR, WALL_TOP)
     cut(body, box("inside", LEFT, RIGHT, BOTTOM, TOP, 0, WALL_TOP + 1))
     cut(body, box("usb", USB[0], USB[1], OUT_BOTTOM - 1, BOTTOM + 0.1, 10.5, WALL_TOP + 1))
-    cut(body, box("catch_a", LEFT - 0.45, LEFT + 0.1, -40, -12, 16.3, 17.3))
-    cut(body, box("catch_b", RIGHT - 0.1, RIGHT + 0.45, -40, -12, 16.3, 17.3))
+    add(body, box("corner", LEFT - 0.1, 4.6, BOTTOM - 0.1, -49.6, -0.1, WALL_TOP))
+    add(body, box("corner", 80.7, RIGHT + 0.1, BOTTOM - 0.1, -49.6, -0.1, WALL_TOP))
+    add(body, box("hanger", CENTER - 11.5, CENTER + 11.5, OUT_TOP - 0.1, 12.6, -FLOOR, WALL_TOP))
+    cut(body, box("hanger_slot", CENTER - 7, CENTER + 7, 7.0, 10.5, -FLOOR - 1, WALL_TOP + 1))
+    for peg in PEGS:
+        add(body, cone_peg(peg))
+    cut(body, word_mesh("blackout", (CENTER, -26.0), 56.0, -FLOOR - 0.3, -FLOOR + 0.5, True))
     return body
 
 
-def lid(kind):
-    body = extrude("lid_" + kind, rounded(OUT_LEFT, OUT_RIGHT, OUT_BOTTOM, HEAD_TOP, 6.0), WALL_TOP, FACE)
+def cone_peg(center):
+    mesh = bpy.data.meshes.new("peg")
+    work = bmesh.new()
+    bmesh.ops.create_cone(work, cap_ends=True, segments=40, radius1=2.05, radius2=1.88, depth=1.3)
+    bmesh.ops.translate(work, verts=work.verts, vec=Vector((center[0], center[1], WALL_TOP + 0.55)))
+    work.to_mesh(mesh)
+    work.free()
+    return link("peg", mesh)
+
+
+def plate(kind):
+    body = extrude("plate", rounded(OUT_LEFT, OUT_RIGHT, OUT_BOTTOM, HEAD_TOP, 7.0), WALL_TOP, FACE)
     if kind == "cat":
-        ears = (((OUT_LEFT + 0.6, HEAD_TOP - 7), (21.0, HEAD_TOP - 1), (3.5, HEAD_TOP + 16)),)
+        ear = [(OUT_LEFT + 0.6, HEAD_TOP - 8), (22.0, HEAD_TOP - 1), (3.5, HEAD_TOP + 17)]
     else:
-        ears = (((OUT_LEFT + 0.6, HEAD_TOP - 7), (12.0, HEAD_TOP - 1), (-2.0, HEAD_TOP + 11)),)
-    for ear in ears:
-        add(body, extrude("ear", list(ear), WALL_TOP, FACE))
-        mirrored = [(2 * CENTER - x, y) for x, y in reversed(ear)]
-        add(body, extrude("ear", mirrored, WALL_TOP, FACE))
-    lip_low = WALL_TOP - 4.0
-    for x0, x1 in ((LEFT + 0.2, LEFT + 1.6), (RIGHT - 1.6, RIGHT - 0.2)):
-        add(body, box("lip", x0, x1, BOTTOM + 0.2, TOP - 0.2, lip_low, WALL_TOP + 0.1))
-    for y0, y1 in ((TOP - 1.6, TOP - 0.2), (BOTTOM + 0.2, BOTTOM + 1.6)):
-        add(body, box("lip", LEFT + 0.2, 27.0, y0, y1, lip_low, WALL_TOP + 0.1))
-        add(body, box("lip", 59.0, RIGHT - 0.2, y0, y1, lip_low, WALL_TOP + 0.1))
-    add(body, box("snap", LEFT - 0.2, LEFT + 0.3, -39, -13, 16.5, 17.1))
-    add(body, box("snap", RIGHT - 0.3, RIGHT + 0.2, -39, -13, 16.5, 17.1))
+        ear = [(OUT_LEFT + 0.6, HEAD_TOP - 8), (13.0, HEAD_TOP - 1), (-2.0, HEAD_TOP + 11)]
+    add(body, extrude("ear", ear, WALL_TOP, FACE))
+    add(body, extrude("ear", [mirror(p) for p in reversed(ear)], WALL_TOP, FACE))
     cut(body, box("lanyard", CENTER - 7, CENTER + 7, 7.0, 10.5, WALL_TOP - 1, FACE + 1))
-
     cut(body, disc("eye", EYE, 3.25, WALL_TOP - 1, FACE + 1))
-    tongue_x0, tongue_x1 = BUTTON[0] - 4.5, BUTTON[0] + 4.5
-    tip_y = -48.6
-    gap = box("gap", tongue_x0 - 0.8, tongue_x1 + 0.8, tip_y, -37.5, WALL_TOP - 1, FACE + 1)
-    add(gap, disc("gap_tip", (BUTTON[0], tip_y), 5.3, WALL_TOP - 1, FACE + 1))
-    tongue = box("tongue", tongue_x0, tongue_x1, tip_y, -36.0, WALL_TOP - 2, FACE + 2)
-    add(tongue, disc("tongue_tip", (BUTTON[0], tip_y), 4.5, WALL_TOP - 2, FACE + 2))
-    combine(gap, tongue, "DIFFERENCE")
-    cut(body, gap)
-    thin = box("thin", tongue_x0 - 0.1, tongue_x1 + 0.1, tip_y, -38.6, WALL_TOP - 0.2, FACE - 1.2)
-    add(thin, disc("thin_tip", (BUTTON[0], tip_y), 4.6, WALL_TOP - 0.2, FACE - 1.2))
-    cut(body, thin)
-    add(body, disc("post", BUTTON, 2.0, BUTTON_TOP + 0.3, FACE - 1.1))
-
+    cut(body, disc("press", BUTTON, 3.95, WALL_TOP - 1, FACE + 1))
+    for peg in PEGS:
+        cut(body, disc("socket", peg, 2.0, WALL_TOP - 0.5, WALL_TOP + 1.4, 40))
     if kind == "cat":
         cut(body, disc("infrared", INFRARED, 3.6, WALL_TOP - 1, FACE + 1))
-        cut(body, ring(EYE, 4.5, 5.7))
-        cut(body, arc((WINK[0], WINK[1] - 1.0), 3.6, 4.8, True))
-        cut(body, ring(CHEEK, 2.2, 3.2))
-        nose = [(CENTER - 2.6, -26.0), (CENTER + 2.6, -26.0), (CENTER, -29.4)]
-        cut(body, extrude("nose", nose, CUT_LOW, CUT_HIGH))
-        cut(body, arc((CENTER - 3.0, -30.6), 2.45, 3.55, False))
-        cut(body, arc((CENTER + 3.0, -30.6), 2.45, 3.55, False))
-        for sign in (-1, 1):
-            cut(body, extrude("inner_ear", [(CENTER + sign * 39.6, HEAD_TOP + 9.5), (CENTER + sign * 43.3, HEAD_TOP - 1.5) if sign < 0 else (CENTER + sign * 29.5, HEAD_TOP - 1.5), (CENTER + sign * 29.5, HEAD_TOP - 1.5) if sign < 0 else (CENTER + sign * 43.3, HEAD_TOP - 1.5)], CUT_LOW, CUT_HIGH))
-            for tilt, level in ((1.8, -27.5), (-1.8, -32.5)):
-                near, far = CENTER + sign * 13.0, CENTER + sign * 29.0
-                line = [(near, level - 0.55), (far, level + tilt - 0.55), (far, level + tilt + 0.55), (near, level + 0.55)]
-                cut(body, extrude("whisker", line if sign > 0 else list(reversed(line)), CUT_LOW, CUT_HIGH))
-        word(body, "blackout", (CENTER, 0.5), 30.0)
-    else:
-        cut(body, ring(EYE, 4.4, 5.5))
-        cut(body, ring(EYE, 8.0, 9.2))
-        cut(body, ring(WINK, 8.0, 9.2))
-        cut(body, arc((WINK[0], WINK[1] + 1.2), 3.6, 4.8, False))
-        beak = [(CENTER - 3.6, -23.5), (CENTER + 3.6, -23.5), (CENTER, -31.5)]
-        cut(body, extrude("beak", beak, CUT_LOW, CUT_HIGH))
-        for cx, cy in ((16.0, -41.0), (25.0, -41.0), (20.5, -47.0)):
-            cut(body, arc((cx, cy), 2.6, 3.7, False))
-            cut(body, arc((2 * CENTER - cx, cy), 2.6, 3.7, False))
-        word(body, "blackout", (CENTER, 0.5), 30.0)
     return body
+
+
+def cat_gold():
+    shapes = [
+        arc((WINK[0], WINK[1] - 1.6), 4.6, 6.8, True),
+        ring(EYE, 3.6, 5.9),
+        poly([(CENTER - 3.0, -25.6), (CENTER + 3.0, -25.6), (CENTER, -29.2)]),
+        arc((CENTER - 3.3, -30.2), 2.5, 3.9, False),
+        arc((CENTER + 3.3, -30.2), 2.5, 3.9, False),
+    ]
+    for sign in (-1, 1):
+        for level, tilt in ((-27.0, 2.2), (-32.0, -1.6)):
+            shapes.append(bar((CENTER + sign * 12.5, level), (CENTER + sign * 27.0, level + tilt), 1.3))
+    inner = [(1.8, HEAD_TOP - 3.5), (17.0, HEAD_TOP + 0.5), (4.6, HEAD_TOP + 12.0)]
+    shapes.append(poly(inner))
+    shapes.append(poly([mirror(p) for p in reversed(inner)]))
+    return merged("gold", shapes)
+
+
+def cat_red():
+    collar = box("collar", OUT_LEFT + 0.05, OUT_RIGHT - 0.05, -44.6, -41.2, RELIEF[0], RELIEF[1])
+    blush = disc("blush", (79.6, -31.4), 3.3, RELIEF[0], RELIEF[1])
+    glow = ring(INFRARED, 3.75, 5.3)
+    combine(glow, box("trim", OUT_LEFT + 0.05, 20, -40, -20, RELIEF[0] - 1, RELIEF[1] + 1), "INTERSECT")
+    return merged("red", [collar, blush, glow])
+
+
+def owl_gold():
+    shapes = [
+        ring(EYE, 7.4, 10.3),
+        ring(EYE, 3.6, 4.8),
+        ring(WINK, 7.4, 10.3),
+        arc((WINK[0], WINK[1] + 1.4), 3.4, 5.0, False),
+        poly([(CENTER, -21.5), (CENTER + 4.0, -26.0), (CENTER, -32.8), (CENTER - 4.0, -26.0)]),
+    ]
+    for sign in (-1, 1):
+        shapes.append(bar((CENTER + sign * 8.0, -8.0), (CENTER + sign * 25.0, -11.5), 2.0))
+    for cx in (20.0, 29.0, 38.0, 47.0, 56.0, 65.0):
+        shapes.append(arc((cx, -38.2), 2.9, 4.2, False))
+    for cx in (15.5, 24.5, 33.5, 60.5, 69.5):
+        shapes.append(arc((cx, -45.6), 2.9, 4.2, False))
+    for shape in shapes:
+        combine(shape, extrude("clip", rounded(OUT_LEFT + 0.05, OUT_RIGHT - 0.05, OUT_BOTTOM + 0.05, HEAD_TOP, 7.0), RELIEF[0] - 1, RELIEF[1] + 1), "INTERSECT")
+    return merged("gold", shapes)
+
+
+def plunger(kind):
+    top = FACE + 1.3
+    stem = disc("plunger_" + kind, BUTTON, 3.7, WALL_TOP - 0.15, top, 48)
+    add(stem, disc("flange", BUTTON, 4.7, 17.6, WALL_TOP - 0.1, 48))
+    mesh = bpy.data.meshes.new("taper")
+    work = bmesh.new()
+    bmesh.ops.create_cone(work, cap_ends=True, segments=48, radius1=2.2, radius2=4.55, depth=1.5)
+    bmesh.ops.translate(work, verts=work.verts, vec=Vector((BUTTON[0], BUTTON[1], BUTTON_TOP + 0.2 + 0.75)))
+    work.to_mesh(mesh)
+    work.free()
+    add(stem, link("taper", mesh))
+    low, high = top - 0.45, top + 0.3
+    if kind == "bell":
+        cut(stem, box("slit", BUTTON[0] - 2.3, BUTTON[0] + 2.3, BUTTON[1] - 0.2, BUTTON[1] + 0.7, low, high))
+        cut(stem, disc("dot", (BUTTON[0], BUTTON[1] - 1.6), 0.95, low, high, 24))
+    else:
+        heart = disc("lobe", (BUTTON[0] - 1.05, BUTTON[1] + 0.7), 1.25, low, high, 32)
+        combine(heart, disc("lobe", (BUTTON[0] + 1.05, BUTTON[1] + 0.7), 1.25, low, high, 32), "UNION")
+        combine(heart, extrude("point", [(BUTTON[0] - 2.2, BUTTON[1] + 0.2), (BUTTON[0] + 2.2, BUTTON[1] + 0.2), (BUTTON[0], BUTTON[1] - 2.4)], low, high), "UNION")
+        cut(stem, heart)
+    return stem, top
+
+
+def copy_of(obj, name):
+    twin = obj.copy()
+    twin.data = obj.data.copy()
+    twin.name = name
+    bpy.context.scene.collection.objects.link(twin)
+    return twin
+
+
+def mend(body):
+    work = bmesh.new()
+    work.from_mesh(body.data)
+    bmesh.ops.remove_doubles(work, verts=work.verts, dist=0.02)
+    loose = [edge for edge in work.edges if not edge.is_manifold]
+    if loose:
+        bmesh.ops.holes_fill(work, edges=loose, sides=0)
+    lonely = [edge for edge in work.edges if not edge.link_faces]
+    if lonely:
+        bmesh.ops.delete(work, geom=lonely, context="EDGES")
+    bmesh.ops.triangulate(work, faces=work.faces)
+    bmesh.ops.recalc_face_normals(work, faces=work.faces)
+    work.to_mesh(body.data)
+    work.free()
 
 
 def report(body):
+    if body.name.endswith(("white", "one_color")) or body.name.startswith("plunger"):
+        mend(body)
     work = bmesh.new()
     work.from_mesh(body.data)
     loose = sum(1 for edge in work.edges if not edge.is_manifold)
     volume = work.calc_volume()
     work.free()
+    work = bmesh.new()
+    work.from_mesh(body.data)
+    for edge in work.edges:
+        if not edge.is_manifold:
+            print("OPEN", body.name, [tuple(round(c, 2) for c in v.co) for v in edge.verts])
+    work.free()
     low = [min(v.co[i] for v in body.data.vertices) for i in range(3)]
     high = [max(v.co[i] for v in body.data.vertices) for i in range(3)]
     print(f"REPORT {body.name} size_mm={[round(high[i] - low[i], 1) for i in range(3)]} volume_cm3={round(volume / 1000, 1)} open_edges={loose}")
-
-
-def flip_for_printing(body):
-    for v in body.data.vertices:
-        v.co.y = -v.co.y
-        v.co.z = FACE - v.co.z
-    body.data.update()
 
 
 def export(body, name):
@@ -236,14 +325,22 @@ def export(body, name):
     bpy.ops.wm.stl_export(filepath=str(OUT / name), export_selected_objects=True)
 
 
+def tint(obj, color):
+    material = bpy.data.materials.new(obj.name)
+    material.diffuse_color = (*color, 1.0)
+    obj.data.materials.clear()
+    obj.data.materials.append(material)
+
+
 def picture(name, position, aim):
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
+    scene.display.shading.color_type = "MATERIAL"
     scene.display.shading.show_cavity = True
     scene.display.shading.show_shadows = True
     scene.render.resolution_x = 1100
-    scene.render.resolution_y = 800
+    scene.render.resolution_y = 900
     data = bpy.data.cameras.new(name)
     data.lens = 55
     data.clip_end = 3000
@@ -256,6 +353,9 @@ def picture(name, position, aim):
     bpy.ops.render.render(write_still=True)
 
 
+WHITE, GOLD, RED = (0.93, 0.93, 0.9), (0.83, 0.62, 0.18), (0.82, 0.1, 0.08)
+
+
 def main():
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
@@ -263,18 +363,45 @@ def main():
     base = tray()
     report(base)
     export(base, "badge_tray.stl")
+    tint(base, WHITE)
     if pictures:
-        picture("badge_tray.png", (CENTER + 60, -150, 190), (CENTER, -26, 8))
+        picture("badge_tray.png", (CENTER + 70, -170, 200), (CENTER, -24, 8))
     base.hide_render = True
-    for kind in ("cat", "owl"):
-        cover = lid(kind)
-        report(cover)
+    for kind, button in (("cat", "bell"), ("owl", "heart")):
+        white = plate(kind)
+        white.name = f"{kind}_white"
+        gold = cat_gold() if kind == "cat" else owl_gold()
+        parts = [(white, WHITE, "white"), (gold, GOLD, "gold")]
+        if kind == "cat":
+            parts.append((cat_red(), RED, "red"))
+        cap, top = plunger(button)
+        for obj, color, label in parts:
+            obj.name = f"{kind}_{label}"
+            report(obj)
+            export(obj, f"badge_{kind}_{label}.stl")
+            tint(obj, color)
+        report(cap)
+        tint(cap, GOLD if button == "bell" else RED)
         if pictures:
-            picture(f"badge_{kind}.png", (CENTER, -20, 330), (CENTER, -20, FACE))
-            picture(f"badge_{kind}_under.png", (CENTER - 70, -150, -160), (CENTER, -22, WALL_TOP))
-        flip_for_printing(cover)
-        export(cover, f"badge_lid_{kind}.stl")
-        cover.hide_render = True
+            picture(f"badge_{kind}.png", (CENTER, -19, 330), (CENTER, -19, FACE))
+            picture(f"badge_{kind}_angle.png", (CENTER - 95, -165, 150), (CENTER, -20, FACE))
+        whole = copy_of(white, f"{kind}_one_color")
+        for obj, _, label in parts[1:]:
+            combine(whole, copy_of(obj, "tmp"), "UNION")
+        report(whole)
+        export(whole, f"badge_{kind}_one_color.stl")
+        for v in cap.data.vertices:
+            v.co.z = top - v.co.z
+            v.co.x = 2 * BUTTON[0] - v.co.x
+        cap.data.update()
+        work = bmesh.new()
+        work.from_mesh(cap.data)
+        bmesh.ops.recalc_face_normals(work, faces=work.faces)
+        work.to_mesh(cap.data)
+        work.free()
+        export(cap, f"badge_button_{button}.stl")
+        for obj in [whole, cap] + [p[0] for p in parts]:
+            obj.hide_render = True
 
 
 main()
