@@ -23,17 +23,26 @@ DEPTH = BOARD_START + 86.0
 SEAT = 12.6
 LENS_Y = 19.0
 BLOCK_HALF = 16.8
-BLOCK_BOTTOM = LENS_Y - 16.8
+BLOCK_BOTTOM = -0.05
 BLOCK_TOP = LENS_Y + 11.5
 BOARD_HALF = 12.75
 LENS = 11.7
-KEY_LOW = BLOCK_BOTTOM + 3.0
-TABS = ((20.0, 30.0), (80.0, 90.0))
+KEY_LOW = 5.2
+KEY_SLOT = 1.95
+KEY_THICK = 1.5
 
-FOOT_HALF = 21.7
-RIDGE = 1.6
-RIDGE_RISE = 1.5
-FOOT_LENGTH = 66.0
+RAIL_OUT = 1.8
+RAIL_FACE = 2.8
+GAP = 0.4
+SKIRT = 2.2
+LIP = 0.8
+ROOF_HALF = RIGHT_OUT + RAIL_OUT + GAP + SKIRT
+STOP = 2.3
+
+FOOT_HALF = 21.3
+FOOT_START = 2.0
+FOOT_LENGTH = 63.4
+GUIDE = 1.0
 ROOF_PLATE = 2.4
 
 LOGO_Y = 36.6
@@ -95,6 +104,24 @@ def prism(name, outline, y0, y1):
     return link(name, mesh)
 
 
+def along(name, outline, z0, z1):
+    count = len(outline)
+    verts = [(x, y, z0) for x, y in outline] + [(x, y, z1) for x, y in outline]
+    faces = [tuple(range(count)), tuple(range(2 * count - 1, count - 1, -1))]
+    for i in range(count):
+        j = (i + 1) % count
+        faces.append((i, i + count, j + count, j))
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    work = bmesh.new()
+    work.from_mesh(mesh)
+    bmesh.ops.recalc_face_normals(work, faces=work.faces)
+    work.to_mesh(mesh)
+    work.free()
+    return link(name, mesh)
+
+
 def combine(target, tool, operation):
     modifier = target.modifiers.new("step", "BOOLEAN")
     modifier.operation = operation
@@ -117,11 +144,12 @@ def shell():
     body = box("camera_body", LEFT_OUT, RIGHT_OUT, FLOOR_OUT, ROOF_IN, 0, DEPTH)
     cut(body, box("inside", LEFT_IN, RIGHT_IN, 0, ROOF_IN + 5, FRONT, DEPTH + 1))
     add(body, box("block", -BLOCK_HALF, BLOCK_HALF, BLOCK_BOTTOM, BLOCK_TOP, FRONT - 0.1, SEAT + 0.8))
-    add(body, box("stop_left", LEFT_IN - 0.05, LEFT_IN + 6.5, -0.05, 8.0, FRONT - 0.1, BOARD_START))
-    add(body, box("stop_right", RIGHT_IN + 0.05, RIGHT_IN - 6.5, -0.05, 8.0, FRONT - 0.1, BOARD_START))
-    for z0, z1 in TABS:
-        add(body, box("tab", LEFT_OUT, LEFT_IN, ROOF_IN - 0.05, ROOF_IN + 2.2, z0, z1))
-        add(body, box("tab", RIGHT_IN, RIGHT_OUT, ROOF_IN - 0.05, ROOF_IN + 2.2, z0, z1))
+    add(body, box("stop_right", RIGHT_IN + 0.05, 17.5, -0.05, 8.0, FRONT - 0.1, BOARD_START))
+    for side in (-1, 1):
+        wall = side * (RIGHT_OUT - 0.2)
+        edge = side * (RIGHT_OUT + RAIL_OUT)
+        low = ROOF_IN - RAIL_FACE
+        add(body, along("rail", [(wall, low - RAIL_OUT - 0.2), (edge, low), (edge, ROOF_IN), (wall, ROOF_IN)], 0, DEPTH))
     cut(body, box("power_window", LEFT_OUT - 1, LEFT_IN + 0.1, 0.5, 16.0, 20.0, 47.0))
     for start in range(30, 95, 10):
         cut(body, box("vent_right", RIGHT_IN - 0.1, RIGHT_OUT + 1, 12.0, 36.0, start, start + 4.0))
@@ -145,7 +173,7 @@ def pocket(body):
             add(body, box("rib", cx + rib_x - 0.3, cx + rib_x + 0.3, cy + side * 5.35, cy + side * 5.0, 0.3, 1.5))
     for side in (-1, 1):
         add(body, box("rib", cx + side * 11.65, cx + side * 11.3, cy - 0.3, cy + 0.3, 0.3, 1.5))
-        cut(body, box("groove", cx + side * (BOARD_HALF - 0.05), cx + side * 14.75, KEY_LOW, BLOCK_TOP + 1, SEAT + 1.15, SEAT + 2.85))
+        cut(body, box("groove", cx + side * (BOARD_HALF - 0.05), cx + side * 14.75, KEY_LOW, BLOCK_TOP + 1, SEAT + 1.15, SEAT + 1.15 + KEY_SLOT))
 
 
 def keys():
@@ -153,8 +181,8 @@ def keys():
     parts = []
     for index in range(3):
         left = index * 12.0
-        key = box("camera_keys", left, left + 3.1, 0, length, 0, 1.5)
-        add(key, box("head", left - 1.6, left + 4.7, length - 0.1, length + 6.0, 0, 1.5))
+        key = box("camera_keys", left, left + 3.1, 0, length, 0, KEY_THICK)
+        add(key, box("head", left - 1.6, left + 4.7, length - 0.1, length + 6.0, 0, KEY_THICK))
         parts.append(key)
     for other in parts[1:]:
         add(parts[0], other)
@@ -162,15 +190,78 @@ def keys():
 
 
 def roof():
-    plate = box("camera_roof", LEFT_OUT, RIGHT_OUT, 0, DEPTH, 0, ROOF_PLATE)
-    for z0, z1 in TABS:
-        cut(plate, box("notch", LEFT_OUT - 1, LEFT_IN + 0.3, z0 - 0.3, z1 + 0.3, -1, ROOF_PLATE + 1))
-        cut(plate, box("notch", RIGHT_IN - 0.3, RIGHT_OUT + 1, z0 - 0.3, z1 + 0.3, -1, ROOF_PLATE + 1))
-    top = ROOF_PLATE - 0.05
-    add(plate, box("ridge_a", -FOOT_HALF - RIDGE, -FOOT_HALF, 0, FOOT_LENGTH, top, ROOF_PLATE + RIDGE_RISE))
-    add(plate, box("ridge_b", FOOT_HALF, FOOT_HALF + RIDGE, 0, FOOT_LENGTH, top, ROOF_PLATE + RIDGE_RISE))
-    add(plate, box("ridge_front", -FOOT_HALF - RIDGE, FOOT_HALF + RIDGE, 0, RIDGE, top, ROOF_PLATE + RIDGE_RISE))
+    length = DEPTH + STOP
+    plate = box("camera_roof", -ROOF_HALF, ROOF_HALF, 0, length, 0, ROOF_PLATE)
+    inner = ROOF_HALF - SKIRT
+    hook = RIGHT_OUT + GAP
+    catch = ROOF_PLATE + RAIL_FACE
+    tip = catch + inner - hook
+    foot = tip + LIP
+    for side in (-1, 1):
+        outline = [
+            (side * inner, ROOF_PLATE - 0.1),
+            (side * inner, catch),
+            (side * hook, tip),
+            (side * hook, foot),
+            (side * ROOF_HALF, foot),
+            (side * ROOF_HALF, ROOF_PLATE - 0.1),
+        ]
+        skirt = along("skirt", outline, 0, length)
+        for v in skirt.data.vertices:
+            v.co.y, v.co.z = v.co.z, v.co.y
+        skirt.data.update()
+        tidy(skirt)
+        add(plate, skirt)
+        add(plate, box("guide", side * (RIGHT_IN - 0.8), side * (RIGHT_IN - 2.4), FRONT + 0.6, DEPTH, ROOF_PLATE - 0.1, ROOF_PLATE + 2.0))
+        add(plate, box("stop", side * (RIGHT_IN + 0.5), side * ROOF_HALF, DEPTH + 0.3, length, ROOF_PLATE - 0.1, foot))
+    outer = box("foot_mark", -FOOT_HALF - GUIDE, FOOT_HALF + GUIDE, FOOT_START - GUIDE, FOOT_START + FOOT_LENGTH + GUIDE, -0.1, 0.4)
+    combine(outer, box("foot_inside", -FOOT_HALF, FOOT_HALF, FOOT_START, FOOT_START + FOOT_LENGTH, -0.5, 0.8), "DIFFERENCE")
+    cut(plate, outer)
     return plate
+
+
+def tidy(obj):
+    work = bmesh.new()
+    work.from_mesh(obj.data)
+    bmesh.ops.recalc_face_normals(work, faces=work.faces)
+    work.to_mesh(obj.data)
+    work.free()
+
+
+def overlap(body, tool):
+    probe = body.copy()
+    probe.data = body.data.copy()
+    bpy.context.scene.collection.objects.link(probe)
+    combine(probe, tool, "INTERSECT")
+    work = bmesh.new()
+    work.from_mesh(probe.data)
+    volume = abs(work.calc_volume()) if work.faces else 0.0
+    work.free()
+    bpy.data.objects.remove(probe, do_unlink=True)
+    return round(volume, 2)
+
+
+def fit(body, lid):
+    cy = LENS_Y
+    seated = lid.copy()
+    seated.data = lid.data.copy()
+    bpy.context.scene.collection.objects.link(seated)
+    for v in seated.data.vertices:
+        v.co.y, v.co.z = ROOF_IN + ROOF_PLATE - v.co.z, v.co.y
+    seated.data.update()
+    tidy(seated)
+    checks = {
+        "pi": box("pi", -29.25, 29.25, 0.3, 17.8, BOARD_START + 0.3, DEPTH + 3),
+        "power_plug": box("plug", LEFT_OUT - 20, LEFT_IN + 1, 2.0, 10.5, 26.0, 40.5),
+        "camera_board": box("cam", -12.5, 12.5, cy - 14.5, cy + 9.5, SEAT + 0.05, SEAT + 1.1),
+        "camera_lens": box("lens", -5.45, 5.45, cy - 5.45, cy + 5.45, 3.4, SEAT + 0.05),
+        "key_left": box("key", -14.7, -11.6, KEY_LOW + 0.1, BLOCK_TOP, SEAT + 1.3, SEAT + 1.3 + KEY_THICK),
+        "key_right": box("key", 11.6, 14.7, KEY_LOW + 0.1, BLOCK_TOP, SEAT + 1.3, SEAT + 1.3 + KEY_THICK),
+        "window": box("window", -11.45, 11.45, cy - 5.15, cy + 5.15, 0.1, 1.4),
+        "roof": seated,
+    }
+    for name, tool in checks.items():
+        print(f"FIT {name} overlap_mm3={overlap(body, tool)}")
 
 
 def mark(body):
@@ -241,7 +332,7 @@ def picture(name, position, aim):
     camera = bpy.data.objects.new(name, data)
     scene.collection.objects.link(camera)
     camera.location = position
-    camera.rotation_euler = (Vector(aim) - Vector(position)).to_track_quat("-Z", "Z").to_euler()
+    camera.rotation_euler = (Vector(aim) - Vector(position)).to_track_quat("-Z", "Y").to_euler()
     scene.camera = camera
     scene.render.filepath = str(OUT / name)
     bpy.ops.render.render(write_still=True)
@@ -261,18 +352,35 @@ def main():
     pocket(body)
     mark(body)
     word(body)
+    lid = roof()
+    fit(body, lid)
     for v in body.data.vertices:
         v.co.y, v.co.z = -v.co.z, v.co.y
     body.data.update()
     report(body)
     export(body, "camera_body.stl")
     if "--pictures" in sys.argv:
-        picture("body_front.png", (-110, 150, 90), (0, -40, 18))
-        picture("body_back.png", (95, -260, 150), (0, -45, 15))
-        picture("body_top.png", (0, -30, 260), (0, -31, 0))
+        lid.hide_render = True
+        picture("body_front.png", (-100, 150, 80), (0, -40, 20))
+        picture("body_back.png", (90, -270, 120), (0, -50, 18))
+        picture("body_top.png", (0, -150, 260), (0, -52, 0))
+        shown = lid.copy()
+        shown.data = lid.data.copy()
+        bpy.context.scene.collection.objects.link(shown)
+        for v in shown.data.vertices:
+            v.co.y, v.co.z = -v.co.y - 40.0, ROOF_IN + ROOF_PLATE - v.co.z
+        shown.data.update()
+        tidy(shown)
+        shown.hide_render = False
+        picture("body_roof.png", (-130, 110, 120), (0, -70, 25))
+        picture("body_roof_back.png", (60, -290, 75), (0, -90, 30))
+        bpy.data.objects.remove(shown, do_unlink=True)
+        body.hide_render = True
+        lid.hide_render = False
+        picture("roof_under.png", (-90, -60, 110), (0, 55, 0))
     body.hide_render = True
-    for maker, name in ((roof, "camera_roof.stl"), (keys, "camera_keys.stl")):
-        part = maker()
+    lid.hide_render = True
+    for part, name in ((lid, "camera_roof.stl"), (keys(), "camera_keys.stl")):
         report(part)
         export(part, name)
         part.hide_render = True
