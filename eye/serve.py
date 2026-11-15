@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import hmac
 import json
@@ -9,8 +11,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+except ImportError:
+    cv2 = None
+    np = None
 
 STALE_SECONDS = 1.5
 MAX_PUSH_BYTES = 2_000_000
@@ -23,7 +29,10 @@ class Outbox:
         self._lock = threading.Condition()
         self._quality = quality
         self._count = 0
-        self._black = self._encode(np.zeros((height, width, 3), dtype=np.uint8))
+        if cv2 is None:
+            self._black = (SITE / "black.jpg").read_bytes()
+        else:
+            self._black = self._encode(np.zeros((height, width, 3), dtype=np.uint8))
         self._jpeg = self._black
         self._stamp = 0.0
         self._state: dict = {}
