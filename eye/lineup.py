@@ -90,8 +90,82 @@ def report(data: np.ndarray, out: str) -> None:
     print("saved", out)
 
 
+def still(upside_down: bool, out: str) -> None:
+    from picamera2 import Picamera2
+
+    capture = cv2.VideoCapture(find_webcam(), cv2.CAP_V4L2)
+    capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+    frame = None
+    for _ in range(40):
+        ok, image = capture.read()
+        if ok:
+            frame = image
+    capture.release()
+    tag = Picamera2(0)
+    tag.configure(
+        tag.create_video_configuration(
+            main={"size": (1280, 720), "format": "YUV420"},
+            controls={"FrameDurationLimits": (33333, 33333), "AeEnable": False, "ExposureTime": 16000, "AnalogueGain": 6.0},
+        )
+    )
+    tag.start()
+    time.sleep(2.0)
+    gray = tag.capture_array("main")[:720]
+    tag.stop()
+    if upside_down:
+        gray = gray[::-1, ::-1]
+    gray = np.ascontiguousarray(gray)
+    if frame is None:
+        print("the webcam gave no picture")
+        return
+    even = cv2.createCLAHE(3.0, (8, 8))
+    near = even.apply(gray)
+    seen = even.apply(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+    finder = cv2.SIFT_create(8000, contrastThreshold=0.02)
+    points_a, words_a = finder.detectAndCompute(near, None)
+    points_b, words_b = finder.detectAndCompute(seen, None)
+    pairs = []
+    for found in cv2.BFMatcher(cv2.NORM_L2).knnMatch(words_a, words_b, k=2):
+        if len(found) == 2 and found[0].distance < 0.78 * found[1].distance:
+            pairs.append((*points_a[found[0].queryIdx].pt, *points_b[found[0].trainIdx].pt))
+    scratch = Path.home() / "scratch"
+    cv2.imwrite(str(scratch / "lineup_web.jpg"), cv2.resize(frame, (640, 360)))
+    cv2.imwrite(str(scratch / "lineup_tag.jpg"), cv2.resize(gray, (640, 360)))
+    print(f"points found: tag camera {len(points_a)}, webcam {len(points_b)}, candidate pairs {len(pairs)}")
+    if len(pairs) < 12:
+        print("not enough matching points to line up the cameras")
+        return
+    data = np.array(pairs, dtype=np.float64)
+    source = np.ascontiguousarray(data[:, :2], dtype=np.float32)
+    target = np.ascontiguousarray(data[:, 2:], dtype=np.float32)
+    affine, mask = cv2.estimateAffinePartial2D(source, target, method=cv2.RANSAC, ransacReprojThreshold=14.0, maxIters=8000)
+    if affine is None:
+        print("no fit found")
+        return
+    kept = mask.ravel().astype(bool)
+    matrix = np.vstack([affine, [0.0, 0.0, 1.0]])
+    moved = source @ affine[:, :2].T + affine[:, 2]
+    errors = np.hypot(*(moved - target).T)
+    size = float(np.hypot(affine[0, 0], affine[1, 0]))
+    turn = float(np.degrees(np.arctan2(affine[1, 0], affine[0, 0])))
+    print(f"scene fit from {int(kept.sum())} of {len(pairs)} pairs, typical miss {np.median(errors[kept]):.1f} px, scale {size:.3f}, turn {turn:.1f} degrees, shift {affine[0, 2]:.0f} {affine[1, 2]:.0f}")
+    print(f"tag picture covered x {source[kept, 0].min():.0f} to {source[kept, 0].max():.0f}, y {source[kept, 1].min():.0f} to {source[kept, 1].max():.0f}")
+    laid = cv2.warpAffine(near, affine, (1280, 720))
+    check = cv2.merge([seen, laid, seen])
+    cv2.imwrite(str(scratch / "lineup_check.jpg"), cv2.resize(check, (960, 540)))
+    if kept.sum() < 12:
+        print("too few agreeing points, nothing saved")
+        return
+    np.save(out, matrix)
+    print("saved", out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--still", action="store_true")
     parser.add_argument("--pairs", default="")
     parser.add_argument("--seconds", type=float, default=45.0)
     parser.add_argument("--exposure", type=int, default=60)
@@ -102,6 +176,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.pairs:
         report(np.load(args.pairs), args.out)
+        return
+    if args.still:
+        still(args.upside_down, args.out)
         return
 
     from picamera2 import Picamera2
