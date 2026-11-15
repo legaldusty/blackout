@@ -27,6 +27,7 @@ class Released:
     holding: bool
     asking: int
     tripped: bool
+    room: bool = False
 
 
 @dataclass
@@ -34,6 +35,7 @@ class _Frame:
     seconds: float
     scene: np.ndarray
     asking: int
+    room: bool
 
 
 @dataclass
@@ -75,7 +77,8 @@ class Pipeline:
                 self._advance(seconds, scene, infrared, heard)
             except Exception as error:
                 self.tripped = f"{type(error).__name__}: {error}"
-        self._queue.append(_Frame(seconds, scene, len(heard)))
+        room = any(entry.policy is Policy.ROOM for entry in heard)
+        self._queue.append(_Frame(seconds, scene, len(heard), room))
         return self._release(seconds)
 
     def flush(self, seconds: float) -> list[Released]:
@@ -99,9 +102,11 @@ class Pipeline:
             if track not in alive:
                 self._protected[track] = (seconds, self._matches.pop(track).policy)
 
-        announced = Counter(entry.code for entry in heard)
+        room = any(entry.policy is Policy.ROOM for entry in heard)
+        worn = [entry for entry in heard if entry.policy is not Policy.ROOM]
+        announced = Counter(entry.code for entry in worn)
         policies: dict[int, Policy] = {}
-        for entry in heard:
+        for entry in worn:
             if policies.get(entry.code) is not Policy.HIDE_ALL:
                 policies[entry.code] = entry.policy
         for track, match in list(self._matches.items()):
@@ -127,7 +132,7 @@ class Pipeline:
                 if was_holding:
                     self._hold_births.append(self._born[owner.track])
 
-        surplus = any(count > matched[code] for code, count in announced.items())
+        surplus = room or any(count > matched[code] for code, count in announced.items())
         if surplus and self._hold_since is None:
             self._hold_since = seconds
         if not surplus and self._hold_since is not None:
@@ -198,7 +203,7 @@ class Pipeline:
     def _compose(self, frame: _Frame) -> Released:
         sightings = [] if self.tripped is not None else self._around(frame.seconds)
         if not sightings:
-            return Released(frame.seconds, np.zeros_like(frame.scene), 0, False, frame.asking, True)
+            return Released(frame.seconds, np.zeros_like(frame.scene), 0, False, frame.asking, True, frame.room)
         image = frame.scene.copy()
         holding = self._holding(frame.seconds)
         erased: set[int] = set()
@@ -217,4 +222,4 @@ class Pipeline:
                     continue
                 erase_person(image, person, policy)
                 erased.add(person.track)
-        return Released(frame.seconds, image, len(erased), holding, frame.asking, False)
+        return Released(frame.seconds, image, len(erased), holding, frame.asking, False, frame.room)

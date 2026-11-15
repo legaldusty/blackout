@@ -30,6 +30,7 @@ def test_tag_and_camera_agree_on_the_wish_numbers():
     found = constants()
     assert found["HIDE_ALL"] == Policy.HIDE_ALL.value
     assert found["HIDE_FACE"] == Policy.HIDE_FACE.value
+    assert found["ROOM"] == Policy.ROOM.value
 
 
 def test_camera_understands_what_the_tag_broadcasts():

@@ -134,3 +134,26 @@ def test_frames_are_never_altered_in_place():
     keep = image.copy()
     pipeline.push(0.0, image, infrared, scene.heard(0.0))
     assert np.array_equal(image, keep)
+
+
+def test_room_tag_hides_everyone_without_any_light():
+    from eye.radio import Heard
+
+    first = Actor("one", 60)
+    second = Actor("two", 220)
+    scene = Scene([first, second])
+    pipeline = build(scene)
+    released = []
+    for index in range(300):
+        moment = index / 30.0
+        image, infrared = scene.frames(moment)
+        heard = [Heard("room", 0, Policy.ROOM)] if 2.0 <= moment < 6.0 else []
+        released.extend(pipeline.push(moment, image, infrared, heard))
+    before = [r for r in released if r.seconds < 1.9]
+    during = [r for r in released if 2.1 < r.seconds < 5.9]
+    after = [r for r in released if r.seconds > 6.2]
+    assert min(scene.visible_fraction(first, r) for r in before) == 1.0
+    assert during and all(r.room and r.erased == 2 for r in during)
+    assert max(scene.visible_fraction(second, r) for r in during) == 0.0
+    assert after and min(scene.visible_fraction(first, r) for r in after) == 1.0
+    assert not any(r.room for r in after)

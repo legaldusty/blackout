@@ -27,6 +27,13 @@ function describe(state) {
     };
   }
   const note = "live, 2.5 seconds behind";
+  if (state.room) {
+    return {
+      headline: "This room asked not to be filmed",
+      detail: "A room tag is nearby, so everyone in view is hidden. Nobody here had to wear anything.",
+      note,
+    };
+  }
   if (state.holding) {
     return {
       headline: "A tag is nearby that the camera cannot see yet",

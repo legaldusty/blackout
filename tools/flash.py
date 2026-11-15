@@ -37,6 +37,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port")
     parser.add_argument("--code-only", action="store_true")
+    parser.add_argument("--room", action="store_true")
     args = parser.parse_args()
     ports = [args.port] if args.port else find_ports()
     if not ports:
@@ -54,8 +55,12 @@ def main() -> None:
         time.sleep(2.0)
     print("copying tag code")
     tool("mpremote", "connect", port, "cp", str(ROOT / "tag" / "main.py"), ":main.py")
+    if args.room:
+        tool("mpremote", "connect", port, "exec", "open('room', 'w').close()")
+    else:
+        tool("mpremote", "connect", port, "exec", "import os\nif 'room' in os.listdir(): os.remove('room')")
     tool("mpremote", "connect", port, "reset")
-    print("done, the tag is blinking if its switch is on")
+    print("done, this is a room tag" if args.room else "done, this is a badge tag")
 
 
 if __name__ == "__main__":

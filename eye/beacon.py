@@ -22,6 +22,7 @@ CODE_COUNT = len(CODES)
 class Policy(Enum):
     HIDE_ALL = 1
     HIDE_FACE = 2
+    ROOM = 3
 
 
 def chip_at(code: int, seconds: float) -> int:

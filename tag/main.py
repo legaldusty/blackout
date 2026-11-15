@@ -2,7 +2,7 @@ import os
 import time
 
 import bluetooth
-from machine import Pin, Timer
+from machine import PWM, Pin, Timer
 
 CHIP_HZ = 15
 CODES = (
@@ -17,6 +17,7 @@ CODES = (
 )
 HIDE_ALL = 1
 HIDE_FACE = 2
+ROOM = 3
 
 COMPANY_ID = 0xFFFF
 BEACON_PREFIX = bytes((0x4E, 0x50, 0x02))
@@ -24,10 +25,13 @@ ADVERTISE_INTERVAL_US = 100_000
 ROTATE_SECONDS = 300
 
 BOARDS = {
-    "ESP32S3": {"emitters": (1, 2, 3, 4), "status": 5, "button": 0},
-    "ESP32": {"emitters": (25, 26, 27, 33), "status": 19, "button": 0},
+    "ESP32S3": {"emitters": (1, 2, 3, 4), "status": 5, "onboard": 21, "button": 0},
+    "ESP32": {"emitters": (25, 26, 27, 33), "status": 19, "onboard": 2, "button": 0},
 }
 HOLD_TICKS = 18
+BREATH_TICKS = 45
+BREATH_LOW = 6000
+BREATH_HIGH = 65535
 
 
 def board():
@@ -40,11 +44,13 @@ def board():
 
 wiring = board()
 emitters = [Pin(number, Pin.OUT, value=0) for number in wiring["emitters"]]
-status = Pin(wiring["status"], Pin.OUT, value=0)
+status = PWM(Pin(wiring["status"]), freq=1000, duty_u16=0)
+onboard = Pin(wiring["onboard"], Pin.OUT, value=0)
+is_room = "room" in os.listdir()
 button = Pin(wiring["button"], Pin.IN, Pin.PULL_UP)
 
 radio = bluetooth.BLE()
-state = {"index": 0, "wish": None, "code": 0, "picked": 0, "active": True, "face_only": False, "held": 0, "flash": 0}
+state = {"index": 0, "wish": None, "code": 0, "picked": 0, "active": True, "face_only": False, "held": 0, "flash": 0, "breath": 0}
 
 
 def pick_code():
@@ -61,7 +67,7 @@ def pick_code():
 def read_button():
     if button.value() == 0:
         state["held"] += 1
-        if state["held"] == HOLD_TICKS:
+        if state["held"] == HOLD_TICKS and not is_room:
             state["face_only"] = not state["face_only"]
             state["active"] = True
             state["flash"] = 12
@@ -74,6 +80,8 @@ def read_button():
 def wanted_wish():
     if not state["active"]:
         return None
+    if is_room:
+        return ROOM
     return HIDE_FACE if state["face_only"] else HIDE_ALL
 
 
@@ -88,15 +96,22 @@ def advertise(wish):
 
 def shine(on):
     for pin in emitters:
-        pin.value(on)
+        pin.value(0 if is_room else on)
 
 
 def show_status(wish):
+    onboard.value(0 if wish is None else 1)
     if state["flash"] > 0:
         state["flash"] -= 1
-        status.value((state["flash"] // 3) % 2)
+        status.duty_u16(BREATH_HIGH if (state["flash"] // 3) % 2 else 0)
         return
-    status.value(0 if wish is None else 1)
+    if wish is None:
+        status.duty_u16(0)
+        return
+    state["breath"] = (state["breath"] + 1) % BREATH_TICKS
+    half = BREATH_TICKS // 2
+    step = state["breath"] if state["breath"] <= half else BREATH_TICKS - state["breath"]
+    status.duty_u16(BREATH_LOW + (BREATH_HIGH - BREATH_LOW) * step // half)
 
 
 def tick(_):

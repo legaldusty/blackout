@@ -16,6 +16,7 @@ def state_of(released: Released, rate: float) -> dict:
         "holding": released.holding,
         "asking": released.asking,
         "tripped": released.tripped,
+        "room": released.room,
         "rate": round(rate, 1),
     }
 
