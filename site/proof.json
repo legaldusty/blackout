@@ -1,0 +1,34 @@
+{
+  "measured": [
+    {
+      "number": "4 m",
+      "what": "Farthest spot where the badge was matched at least 90 percent of the time",
+      "conditions": "One person, tested at 1, 2, 3, 4, 5 m, indoors in daylight with room lights on, 10 second hold at each spot, state read about 14 times a second, 2026-11-15"
+    },
+    {
+      "number": "7 of 832",
+      "what": "Checks where the badge wearer was left uncovered",
+      "conditions": "One person with the badge on, every distance plus back turned, indoors in daylight with room lights on, 10 second hold at each spot, state read about 14 times a second, 2026-11-15"
+    },
+    {
+      "number": "100%",
+      "what": "Of checks kept the wearer hidden with their back turned",
+      "conditions": "Badge light out of sight at 2 m, indoors in daylight with room lights on, 10 second hold at each spot, state read about 14 times a second, 2026-11-15"
+    },
+    {
+      "number": "100%",
+      "what": "Of checks erased exactly one person when two stood side by side",
+      "conditions": "Wearer and a second person about one step apart at 2 m, indoors in daylight with room lights on, 10 second hold at each spot, state read about 14 times a second, 2026-11-15"
+    },
+    {
+      "number": "39",
+      "what": "Frames a second while erasing",
+      "conditions": "Raspberry Pi 5, 1280 by 720 video, 2026-11-15"
+    },
+    {
+      "number": "53",
+      "what": "Automated tests passing",
+      "conditions": "pytest, 2026-11-15"
+    }
+  ]
+}

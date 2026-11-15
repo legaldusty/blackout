@@ -15,14 +15,14 @@ function describe(state) {
   if (!state || (!state.live && !state.stalled)) {
     return {
       headline: "The camera is off right now",
-      detail: "When it is on, this page shows the only picture that leaves it. The simulation in How it works runs any time.",
+      detail: "When it is on, this page shows the only video that leaves it. The pictures under How it works are there any time.",
       note: "camera off",
     };
   }
   if (state.stalled || state.tripped) {
     return {
       headline: "The camera stopped, so the picture went black",
-      detail: "Blackout fails closed. No frame is better than a raw frame.",
+      detail: "When the software stops, it shows nothing. It never falls back to the raw video.",
       note: "black on purpose",
     };
   }
@@ -30,14 +30,14 @@ function describe(state) {
   if (state.room) {
     return {
       headline: "This room asked not to be filmed",
-      detail: "A room tag is nearby, so everyone in view is hidden. Nobody here had to wear anything.",
+      detail: "A room tag is switched on nearby, so everyone in view is hidden. Nobody had to wear anything.",
       note,
     };
   }
   if (state.holding) {
     return {
-      headline: "A tag is nearby that the camera cannot see yet",
-      detail: "Until it finds the light, everyone it has not matched stays hidden.",
+      headline: "A badge is nearby, but the camera cannot see its light",
+      detail: "Until it finds the light, it hides everyone in view.",
       note,
     };
   }
@@ -46,11 +46,11 @@ function describe(state) {
     return { headline: `${who} asked to be left out`, detail: `They were erased inside the camera. ${DELAY_NOTE}`, note };
   }
   if (state.asking > 0) {
-    return { headline: "A tag is nearby, and its wearer is out of view", detail: "Nobody in the picture is wearing it, so nobody is erased.", note };
+    return { headline: "A badge is nearby, and its wearer is out of view", detail: "Nobody in the picture is wearing it, so nobody is erased.", note };
   }
   return {
     headline: "Nobody nearby has asked to be left out",
-    detail: "Clip on a tag and switch it on. You turn into a silhouette here within a few seconds.",
+    detail: "Put on a badge and switch it on. A few seconds later you are a black shape here.",
     note,
   };
 }
@@ -128,16 +128,16 @@ async function loadProof() {
     for (const item of proof.measured) rows.appendChild(proofRow(item.number, item.what, item.conditions));
     proofLoaded = true;
   } catch (error) {
-    rows.appendChild(proofRow("Not measured yet", "We run the recorded tests once the hardware is built", "This page stays empty on purpose until then. We do not show numbers we have not measured."));
+    rows.appendChild(proofRow("Not measured yet", "The test results have not been loaded", "We only show numbers we measured ourselves."));
   }
 }
 
 const TOUR = [
-  ["feed", "camera", "This is the only picture that leaves the camera. Anyone wearing a tag is already a silhouette by the time it gets here."],
-  ["status", "camera", "This line says what the camera did and why. It also tells you when the camera is hiding everyone, or has gone black on purpose."],
-  ["facts", "camera", "Live counts straight from the camera: tags it can hear, people it erased, and how fast it is running."],
-  ["proofRows", "proof", "Proof holds the numbers we measured ourselves, with the test conditions under each one."],
-  ["simSees", "how", "How it works has a simulation. Flip the switches to see each safety rule kick in."],
+  ["feed", "camera", "This is the only video that leaves the camera. Anyone wearing a badge is already blacked out by the time it gets here."],
+  ["status", "camera", "This line says what the camera is doing and why, including when it hides everyone or shows nothing."],
+  ["facts", "camera", "These counts come from the camera: badges it can hear, people it erased, and how fast it is running."],
+  ["proofRows", "proof", "Proof lists what we measured in our own test, with the conditions under each number."],
+  ["simSees", "how", "Flip these switches to see what the camera does in each case."],
 ];
 let tourAt = -1;
 
@@ -153,7 +153,7 @@ function tourStep(index) {
   const [target, view, words] = TOUR[index];
   show(view);
   $("tourText").textContent = words;
-  $("tourNext").firstChild.textContent = index === TOUR.length - 1 ? "Done " : "Next ";
+  $("tourNextWord").textContent = index === TOUR.length - 1 ? "Done" : "Next";
   $("tour").hidden = false;
   const node = $(target);
   node.classList.add("spot");
@@ -176,32 +176,20 @@ try {
   welcome.showModal();
 }
 
-const PATTERN = [0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1];
 const sim = { matched: false, seenFor: 0, last: performance.now() };
+const SIM_PICTURES = ["sim_front", "sim_back", "sim_one", "sim_one_back", "sim_all", "sim_all_back"];
+SIM_PICTURES.forEach((name) => { new Image().src = `img/${name}.jpg`; });
 
-function figure(pen, x, ground, scale, color) {
-  pen.fillStyle = color;
-  pen.beginPath();
-  pen.ellipse(x, ground - 290 * scale, 31 * scale, 35 * scale, 0, 0, Math.PI * 2);
-  pen.fill();
-  pen.beginPath();
-  pen.roundRect(x - 60 * scale, ground - 250 * scale, 120 * scale, 170 * scale, 44 * scale);
-  pen.fill();
-  pen.beginPath();
-  pen.roundRect(x - 42 * scale, ground - 130 * scale, 84 * scale, 130 * scale, 18 * scale);
-  pen.fill();
-}
-
-function backdrop(pen, width, height) {
-  pen.fillStyle = "#292929";
-  pen.fillRect(0, 0, width, height);
-  pen.fillStyle = "#383838";
-  pen.fillRect(0, height * 0.72, width, height * 0.28);
+function simPicture(node, name) {
+  const wanted = name ? `img/${name}.jpg` : "";
+  if (node.dataset.shown === wanted) return;
+  node.dataset.shown = wanted;
+  if (name) node.src = wanted;
+  node.style.visibility = name ? "visible" : "hidden";
 }
 
 function drawSim(now) {
-  const seconds = now / 1000;
-  const step = Math.min(0.1, (now - sim.last) / 1000);
+  const step = Math.min(0.5, (now - sim.last) / 1000);
   sim.last = now;
   const tagOn = $("simTag").checked;
   const covered = $("simBack").checked;
@@ -209,59 +197,24 @@ function drawSim(now) {
   if (!tagOn) { sim.matched = false; sim.seenFor = 0; }
   if (tagOn && !covered) { sim.seenFor += step; if (sim.seenFor >= 2) sim.matched = true; }
   if (tagOn && covered && !sim.matched) sim.seenFor = 0;
-  const holding = tagOn && covered && !sim.matched;
+  const holding = tagOn && !sim.matched;
+  const turned = covered ? "_back" : "";
 
-  const sees = $("simSees").getContext("2d");
-  const leaves = $("simLeaves").getContext("2d");
-  const width = 640;
-  const height = 360;
-  const ground = height * 0.8;
-  const people = [
-    { x: 130 + Math.sin(seconds * 0.5) * 18, scale: 0.72, tagged: false },
-    { x: 320 + Math.sin(seconds * 0.35 + 1) * 26, scale: 0.8, tagged: true },
-    { x: 510 + Math.sin(seconds * 0.6 + 2) * 14, scale: 0.64, tagged: false },
-  ];
+  simPicture($("simSees"), covered ? "sim_back" : "sim_front");
+  let leaves = covered ? "sim_back" : "sim_front";
+  if (!running) leaves = "";
+  else if (holding) leaves = `sim_all${turned}`;
+  else if (tagOn) leaves = `sim_one${turned}`;
+  simPicture($("simLeaves"), leaves);
 
-  backdrop(sees, width, height);
-  for (const person of people) {
-    figure(sees, person.x, ground, person.scale, "#8c8c8c");
-    if (!person.tagged || !tagOn) continue;
-    const chest = ground - 200 * person.scale;
-    sees.strokeStyle = "#ffffff";
-    sees.lineWidth = 1.5;
-    for (const radius of [22, 34]) {
-      sees.globalAlpha = 0.25 + 0.2 * Math.sin(seconds * 4 - radius / 10);
-      sees.beginPath();
-      sees.arc(person.x, chest, radius, 0, Math.PI * 2);
-      sees.stroke();
-    }
-    sees.globalAlpha = 1;
-    if (!covered && PATTERN[Math.floor(seconds * 15) % PATTERN.length]) {
-      sees.fillStyle = "#e5231b";
-      sees.beginPath();
-      sees.arc(person.x, chest, 7, 0, Math.PI * 2);
-      sees.fill();
-    }
-  }
-
-  if (!running) {
-    leaves.fillStyle = "#000000";
-    leaves.fillRect(0, 0, width, height);
-  } else {
-    backdrop(leaves, width, height);
-    for (const person of people) {
-      const erased = holding || (tagOn && person.tagged);
-      figure(leaves, person.x, ground, erased ? person.scale * 1.06 : person.scale, erased ? "#050505" : "#8c8c8c");
-    }
-  }
-
-  let why = "Tag off. Nobody is asking, so nothing is erased. Try covering the tag before you switch it on.";
-  if (!running) why = "The software stopped, so the output is black. It never falls back to the raw picture.";
-  else if (holding) why = "The camera hears a tag over radio but cannot find its light. It hides everyone it has not matched.";
-  else if (tagOn && covered) why = "The tag is covered now, but the camera already matched it to this person and keeps them erased while it tracks them.";
-  else if (tagOn) why = "Radio says a tag is here. The blinking light, drawn in red so you can see it, shows which person. Only they are erased.";
+  let why = "Badge off. Nobody is asking, so nobody is erased.";
+  if (!running) why = "The software stopped, so the camera shows nothing. It never falls back to the raw video.";
+  else if (holding && covered) why = "The camera hears a badge over Bluetooth but cannot see its light, so it hides everyone in view.";
+  else if (holding) why = "The camera hears the badge and is looking for its light. Until it finds it, everyone in view stays hidden.";
+  else if (tagOn && covered) why = "The badge is out of sight now, but the camera already matched it to this person and keeps them erased while it follows them.";
+  else if (tagOn) why = "The camera found the badge's light on the person on the left. Only they are erased.";
   $("simWhy").textContent = why;
-  requestAnimationFrame(drawSim);
 }
 
-requestAnimationFrame(drawSim);
+setInterval(() => drawSim(performance.now()), 250);
+drawSim(performance.now());

@@ -4,12 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Blackout</title>
-<meta name="description" content="A badge that tells cameras to leave you out, and a camera that listens.">
+<meta name="description" content="A tag that asks cameras to leave you out, and a camera that does it.">
 <meta name="theme-color" content="#050505">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="preload" href="fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="mark.svg" type="image/svg+xml">
 </head>
@@ -38,51 +35,59 @@
       <div><dt>people erased</dt><dd id="factErased">0</dd></div>
       <div><dt>frames a second</dt><dd id="factRate">0</dd></div>
     </dl>
-    <button type="button" class="solid" id="tourStart">Take the 30 second tour <i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+    <button type="button" class="solid" id="tourStart">Take the 30 second tour <svg class="arrow" viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></button>
   </section>
 
   <section id="proof" class="view">
-    <h1>Numbers we measured ourselves</h1>
-    <p class="lede" id="proofLede">Every number here comes from our own recorded test runs. The conditions are listed under each one.</p>
+    <h1>What we measured</h1>
+    <p class="lede" id="proofLede">These numbers come from our own test with the real camera and badge. The conditions are written under each one.</p>
     <div id="proofRows" class="rows"></div>
   </section>
 
   <section id="how" class="view">
-    <h1>Not pictured, by choice</h1>
-    <p class="lede">Smart glasses and home robots film the people around them and send that video away. Blackout lets those people say no, and makes the camera listen.</p>
+    <h1>How it works</h1>
+    <p class="lede">Camera glasses and home robots film whoever is nearby and send that video away. Blackout gives the people in front of the camera a way to say no.</p>
+    <figure class="shot">
+      <img src="img/room.jpg" alt="Two people stand in front of the camera. One wears the badge, and a red line shows its infrared light reaching the camera." width="1600" height="1067" loading="lazy">
+      <figcaption>The badge and the camera. The red line stands for infrared light, which you cannot see.</figcaption>
+    </figure>
     <ol class="steps">
-      <li><strong>The tag speaks twice.</strong> Over Bluetooth it says a tag is here and which blink pattern it is using. With infrared light, which people cannot see, it blinks that pattern.</li>
-      <li><strong>The camera has two eyes.</strong> One films the scene. The other sits behind a filter that blocks visible light, so it sees almost nothing except tags.</li>
-      <li><strong>It matches light to a person.</strong> The camera only looks for patterns it heard announced, then finds the person the light is on.</li>
-      <li><strong>It erases them before anything leaves.</strong> The video runs 2.5 seconds behind, so the erase covers the moment before the tag was read.</li>
+      <li>The badge sends two signals. Over Bluetooth it says a tag is nearby. With an infrared light it blinks a pattern that marks the person wearing it.</li>
+      <li>The camera unit has two cameras. One films the room. The other sits behind a dark filter and sees little except that light.</li>
+      <li>The camera finds the person the light is on and paints them solid black.</li>
+      <li>The video runs 2.5 seconds late, so the erase also covers the moment before the badge was read. Nothing unerased is saved or sent.</li>
     </ol>
-    <h2>Try the rules yourself</h2>
-    <p class="lede">This part is a simulation, not the live camera. The person in the middle is wearing a tag.</p>
+    <figure class="shot narrow">
+      <img src="img/inside.jpg" alt="The badge taken apart: printed lid, button, chip board with two lights and four resistors, printed tray." width="1056" height="1340" loading="lazy">
+      <figcaption>Inside the badge: a hobby chip, the infrared light from a TV remote, four resistors and a printed case.</figcaption>
+    </figure>
+    <h2>Try the rules</h2>
+    <p class="lede">These pictures are drawn by computer, not filmed. The person on the left wears the badge.</p>
     <div class="sim">
-      <figure><canvas id="simSees" width="640" height="360"></canvas><figcaption>What the camera sees <span class="plain">Simulated</span></figcaption></figure>
-      <figure><canvas id="simLeaves" width="640" height="360"></canvas><figcaption>What leaves the camera <span class="plain">Simulated</span></figcaption></figure>
+      <figure><img id="simSees" alt="What the camera sees" width="1280" height="720"><figcaption>What the camera sees <span class="plain">Simulated</span></figcaption></figure>
+      <figure><img id="simLeaves" alt="What leaves the camera" width="1280" height="720"><figcaption>What leaves the camera <span class="plain">Simulated</span></figcaption></figure>
     </div>
     <div class="switches">
-      <label><input type="checkbox" id="simTag" checked> Tag switched on</label>
-      <label><input type="checkbox" id="simBack"> Tag covered or back turned</label>
+      <label><input type="checkbox" id="simTag" checked> Badge switched on</label>
+      <label><input type="checkbox" id="simBack"> Back turned</label>
       <label><input type="checkbox" id="simRun" checked> Camera software running</label>
     </div>
     <p class="lede" id="simWhy"></p>
-    <h2>What we say out loud</h2>
+    <h2>Limits</h2>
     <ul class="plainlist">
-      <li>Only cameras that choose, or are required, to honor the tag will obey it. It is a standard, like a crosswalk signal.</li>
-      <li>The tag hides who you are, not what you do. A silhouette and its actions stay visible.</li>
-      <li>The tag has no serial number. Its pattern and its radio address change every few minutes, so it cannot be used to follow you.</li>
-      <li>Researchers at UC Irvine proposed bystander signals in 2025. Blackout is our working take: radio and light together, a whole-body erase, and a camera that goes black when it is unsure.</li>
+      <li>Only a camera that runs this software obeys the badge. It works like a rule of the road: it matters once camera makers agree to follow it, or a law says they must.</li>
+      <li>The camera has to see the badge's light. In our daylight test it matched the badge out to 4 metres. Past that, or with your back turned, it hides everyone in view.</li>
+      <li>It hides who you are, not what you do. Your outline and your movements stay in the video.</li>
+      <li>The badge has no serial number. Its pattern and its radio address change every five minutes, so it cannot be used to follow you.</li>
     </ul>
   </section>
 </main>
 
 <dialog id="welcome">
-  <h2>You are looking through a camera that honors Blackout</h2>
-  <p>People wearing a Blackout tag are erased inside the camera. Nothing unerased is ever saved or sent, so this page never receives it.</p>
+  <h2>This is the video that leaves a Blackout camera</h2>
+  <p>Anyone wearing a Blackout badge is blacked out inside the camera. The unerased video is never saved or sent, so this page never receives it.</p>
   <div class="actions">
-    <button type="button" class="solid" id="welcomeTour">Take the tour <i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+    <button type="button" class="solid" id="welcomeTour">Take the tour <svg class="arrow" viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></button>
     <button type="button" class="quiet" id="welcomeSkip">Just look around</button>
   </div>
 </dialog>
@@ -90,7 +95,7 @@
 <aside id="tour" hidden>
   <p id="tourText"></p>
   <div class="actions">
-    <button type="button" class="solid" id="tourNext">Next <i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+    <button type="button" class="solid" id="tourNext"><span id="tourNextWord">Next</span> <svg class="arrow" viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></button>
     <button type="button" class="quiet" id="tourEnd">End tour</button>
   </div>
 </aside>
