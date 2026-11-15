@@ -7,7 +7,6 @@ from eye.beacon import Policy
 from eye.erase import erase_person
 from eye.people import Detector, Person, Tracker
 from eye.radio import Heard
-from eye.sampling import grow_box
 from eye.spots import Spots
 from eye.watch import Direct
 
@@ -15,9 +14,8 @@ from eye.watch import Direct
 @dataclass
 class Settings:
     delay_seconds: float = 2.5
-    erase_growth: float = 0.06
     tag_reach: float = 0.15
-    blind_seconds: float = 0.6
+    blind_seconds: float = 0.8
     to_scene: np.ndarray | None = None
 
 
@@ -217,6 +215,6 @@ class Pipeline:
                     policy = Policy.HIDE_ALL
                 if policy is None:
                     continue
-                erase_person(image, person, policy, self.settings.erase_growth)
+                erase_person(image, person, policy)
                 erased.add(person.track)
         return Released(frame.seconds, image, len(erased), holding, frame.asking, False)

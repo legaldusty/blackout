@@ -60,9 +60,10 @@ function paint(state) {
 
 let pulling = false;
 let lastPicture = null;
+let streaming = true;
 
 async function pullFrame() {
-  if (pulling || document.hidden || !$("camera").classList.contains("on")) return;
+  if (streaming || pulling || document.hidden || !$("camera").classList.contains("on")) return;
   pulling = true;
   try {
     const answer = await fetch(`operator.jpg?${Date.now()}`, { cache: "no-store" });
@@ -78,6 +79,9 @@ async function pullFrame() {
   pulling = false;
 }
 
+$("frame").addEventListener("error", () => { streaming = false; });
+$("frame").src = "operator.mjpg";
+
 async function pullState() {
   if (document.hidden) return;
   try {
@@ -88,7 +92,7 @@ async function pullState() {
   }
 }
 
-setInterval(pullFrame, 90);
+setInterval(pullFrame, 70);
 setInterval(pullState, 500);
 pullState();
 

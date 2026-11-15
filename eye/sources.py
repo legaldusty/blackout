@@ -77,7 +77,7 @@ class PiPair:
     def read(self):
         scene = np.ascontiguousarray(self._scene.capture_array("main"))
         if self._infrared is None:
-            return time.monotonic(), scene, scene.max(axis=2)
+            return time.monotonic(), scene, cv2.cvtColor(scene, cv2.COLOR_BGR2GRAY)
         infrared = self._infrared.capture_array("main")
         return time.monotonic(), scene, np.ascontiguousarray(infrared[: self._height])
 

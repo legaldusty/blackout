@@ -19,8 +19,9 @@ STATIC_TYPES = {".html", ".css", ".js", ".svg", ".woff2", ".png", ".jpg", ".json
 
 class Outbox:
     def __init__(self, width: int = 1280, height: int = 720, quality: int = 80):
-        self._lock = threading.Lock()
+        self._lock = threading.Condition()
         self._quality = quality
+        self._count = 0
         self._black = self._encode(np.zeros((height, width, 3), dtype=np.uint8))
         self._jpeg = self._black
         self._stamp = 0.0
@@ -40,6 +41,14 @@ class Outbox:
             self._jpeg = jpeg
             self._stamp = time.monotonic()
             self._state = state
+            self._count += 1
+            self._lock.notify_all()
+
+    def wait_next(self, seen: int, timeout: float = 0.5) -> int:
+        with self._lock:
+            if self._count == seen:
+                self._lock.wait(timeout)
+            return self._count
 
     def latest(self) -> tuple[bytes, dict]:
         with self._lock:
@@ -72,6 +81,21 @@ def _handler(outbox: Outbox, key: str | None, site: Path | None):
             if route == "/operator.jpg":
                 self._send(200, "image/jpeg", outbox.latest()[0])
                 return
+            if route == "/operator.mjpg":
+                self.send_response(200)
+                self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                seen = -1
+                try:
+                    while True:
+                        seen = outbox.wait_next(seen)
+                        jpeg = outbox.latest()[0]
+                        self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpeg)).encode() + b"\r\n\r\n")
+                        self.wfile.write(jpeg)
+                        self.wfile.write(b"\r\n")
+                except OSError:
+                    return
             if site is not None:
                 name = "index.html" if route == "/" else route.lstrip("/")
                 target = (site / name).resolve()

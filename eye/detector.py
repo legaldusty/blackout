@@ -8,13 +8,15 @@ from eye import models
 from eye.people import Detection
 from eye.sampling import clip_box
 
-CROP_PADDING = 0.12
-OUTLINE_CONFIDENCE = 0.35
-HEAD_FRACTION = 0.45
-FACE_GROWTH = 0.35
+FIND_WIDTH = 640
+CROP_PADDING = 0.14
+OUTLINE_CONFIDENCE = 0.4
+OUTLINE_SIZE = 256
+GROW_FRACTION = 0.035
+SMOOTH_FRACTION = 0.02
+HEAD_FRACTION = 0.5
+FACE_GROWTH = 0.4
 FACE_INPUT_WIDTH = 256
-LEG_FRACTION = 0.7
-FOOT_FRACTION = 0.85
 
 
 def _image(rgb: np.ndarray) -> mp.Image:
@@ -25,14 +27,24 @@ def _flat(view: np.ndarray) -> np.ndarray:
     return view[:, :, 0] if view.ndim == 3 else view
 
 
-def reach_the_ground(body: np.ndarray) -> np.ndarray:
-    height = body.shape[0]
-    if height < 8:
-        return body
-    legs = body[int(height * LEG_FRACTION) :].any(axis=0)
-    out = body.copy()
-    out[int(height * FOOT_FRACTION) :, legs] = True
-    return out
+def _odd(value: float, least: int = 3) -> int:
+    return max(least, int(round(value))) | 1
+
+
+def clean_outline(confidence: np.ndarray, width: int, height: int) -> np.ndarray:
+    small = (confidence > OUTLINE_CONFIDENCE).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(small, connectivity=8)
+    if count > 2:
+        areas = stats[1:, cv2.CC_STAT_AREA]
+        keep = np.flatnonzero(areas >= 0.15 * areas.max()) + 1
+        small = np.isin(labels, keep).astype(np.uint8)
+    side = small.shape[0]
+    small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (_odd(side * 0.04), _odd(side * 0.04))))
+    small = cv2.dilate(small, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (_odd(side * GROW_FRACTION * 2), _odd(side * GROW_FRACTION * 2))))
+    soft = cv2.resize(small.astype(np.float32), (width, height), interpolation=cv2.INTER_LINEAR)
+    blur = _odd(max(width, height) * SMOOTH_FRACTION)
+    soft = cv2.GaussianBlur(soft, (blur, blur), 0)
+    return soft > 0.35
 
 
 class PeopleDetector:
@@ -62,49 +74,45 @@ class PeopleDetector:
     def detect(self, scene: np.ndarray) -> list[Detection]:
         height, width = scene.shape[:2]
         rgb = cv2.cvtColor(scene, cv2.COLOR_BGR2RGB)
-        found = self._finder.detect(_image(rgb))
+        scale = min(1.0, FIND_WIDTH / width)
+        small = rgb if scale == 1.0 else cv2.resize(rgb, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
+        found = self._finder.detect(_image(small))
         out = []
         for item in found.detections:
             raw = item.bounding_box
-            box = clip_box((raw.origin_x, raw.origin_y, raw.origin_x + raw.width, raw.origin_y + raw.height), width, height)
-            out.append(Detection(box, self._body(rgb, box), self._face(rgb, box)))
+            tight = clip_box(
+                (raw.origin_x / scale, raw.origin_y / scale, (raw.origin_x + raw.width) / scale, (raw.origin_y + raw.height) / scale),
+                width,
+                height,
+            )
+            pad_x = int((tight[2] - tight[0]) * CROP_PADDING)
+            pad_y = int((tight[3] - tight[1]) * CROP_PADDING)
+            box = clip_box((tight[0] - pad_x, tight[1] - pad_y, tight[2] + pad_x, tight[3] + pad_y), width, height)
+            out.append(Detection(box, self._body(rgb, box), self._face(rgb, tight, box)))
         return out
 
     def _body(self, rgb: np.ndarray, box) -> np.ndarray:
-        height, width = rgb.shape[:2]
-        pad_x = int((box[2] - box[0]) * CROP_PADDING)
-        pad_y = int((box[3] - box[1]) * CROP_PADDING)
-        wide = clip_box((box[0] - pad_x, box[1] - pad_y, box[2] + pad_x, box[3] + pad_y), width, height)
-        crop = rgb[wide[1] : wide[3], wide[0] : wide[2]]
+        crop = cv2.resize(rgb[box[1] : box[3], box[0] : box[2]], (OUTLINE_SIZE, OUTLINE_SIZE), interpolation=cv2.INTER_AREA)
         confidence = _flat(self._outliner.segment(_image(crop)).confidence_masks[0].numpy_view())
-        if confidence.shape[:2] != crop.shape[:2]:
-            confidence = cv2.resize(confidence, (crop.shape[1], crop.shape[0]))
-        inner = confidence[box[1] - wide[1] : box[3] - wide[1], box[0] - wide[0] : box[2] - wide[0]]
-        return reach_the_ground(inner > OUTLINE_CONFIDENCE)
+        if confidence.shape[:2] != (OUTLINE_SIZE, OUTLINE_SIZE):
+            confidence = cv2.resize(confidence, (OUTLINE_SIZE, OUTLINE_SIZE))
+        return clean_outline(confidence, box[2] - box[0], box[3] - box[1])
 
-    def _face(self, rgb: np.ndarray, box) -> np.ndarray | None:
-        box_width = box[2] - box[0]
-        box_height = box[3] - box[1]
-        head_height = max(1, int(box_height * HEAD_FRACTION))
-        head = rgb[box[1] : box[1] + head_height, box[0] : box[2]]
-        scale = max(1.0, FACE_INPUT_WIDTH / max(1, box_width))
-        if scale > 1.0:
-            head = cv2.resize(head, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+    def _face(self, rgb: np.ndarray, tight, box) -> np.ndarray | None:
+        tight_width = tight[2] - tight[0]
+        head_height = max(1, int((tight[3] - tight[1]) * HEAD_FRACTION))
+        head = rgb[tight[1] : tight[1] + head_height, tight[0] : tight[2]]
+        scale = FACE_INPUT_WIDTH / max(1, tight_width)
+        head = cv2.resize(head, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
         found = self._faces.detect(_image(head)).detections
         if not found:
             return None
-        mask = np.zeros((box_height, box_width), dtype=bool)
+        mask = np.zeros((box[3] - box[1], box[2] - box[0]), dtype=np.uint8)
         for item in found:
             raw = item.bounding_box
-            left = raw.origin_x / scale
-            top = raw.origin_y / scale
-            face_width = raw.width / scale
-            face_height = raw.height / scale
-            grow_x = face_width * FACE_GROWTH
-            grow_y = face_height * FACE_GROWTH
-            x0 = max(0, int(left - grow_x))
-            y0 = max(0, int(top - grow_y * 1.6))
-            x1 = min(box_width, int(np.ceil(left + face_width + grow_x)))
-            y1 = min(box_height, int(np.ceil(top + face_height + grow_y)))
-            mask[y0:y1, x0:x1] = True
-        return mask if mask.any() else None
+            center_x = tight[0] - box[0] + (raw.origin_x + raw.width / 2) / scale
+            center_y = tight[1] - box[1] + (raw.origin_y + raw.height / 2) / scale
+            half_x = raw.width / scale * (0.5 + FACE_GROWTH)
+            half_y = raw.height / scale * (0.5 + FACE_GROWTH * 1.3)
+            cv2.ellipse(mask, (int(center_x), int(center_y - half_y * 0.12)), (int(half_x), int(half_y)), 0, 0, 360, 1, -1)
+        return mask.astype(bool) if mask.any() else None

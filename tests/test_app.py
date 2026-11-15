@@ -117,3 +117,20 @@ def test_site_files_are_served_and_nothing_outside_the_folder(tmp_path):
     finally:
         server.shutdown()
     assert page == b"<p>hello</p>" and all(blocked)
+
+
+def test_stream_sends_each_new_frame():
+    outbox = Outbox(WIDTH, HEIGHT)
+    server = start(outbox, 0, host="127.0.0.1", site=None)
+    address = f"http://127.0.0.1:{server.server_address[1]}/operator.mjpg"
+    try:
+        stream = urllib.request.urlopen(address, timeout=3)
+        outbox.publish(np.full((HEIGHT, WIDTH, 3), 60, dtype=np.uint8), {})
+        first = stream.read(400)
+        outbox.publish(np.full((HEIGHT, WIDTH, 3), 200, dtype=np.uint8), {})
+        rest = stream.read(3000)
+        stream.close()
+    finally:
+        server.shutdown()
+    assert first.startswith(b"--frame") and b"image/jpeg" in first
+    assert (first + rest).count(b"--frame") >= 2
