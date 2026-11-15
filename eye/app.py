@@ -43,6 +43,7 @@ def run(source, radio, pipeline: Pipeline, outbox: Outbox, show: bool = False, f
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pi", action="store_true")
+    parser.add_argument("--one-camera", action="store_true")
     parser.add_argument("--scene", type=int, default=0)
     parser.add_argument("--infrared", type=int, default=None)
     parser.add_argument("--port", type=int, default=8000)
@@ -56,12 +57,13 @@ def main() -> None:
     from eye.detector import PeopleDetector
     from eye.listen import Listener
     from eye.sources import PiPair, WebcamPair
+    from eye.watch import Background
 
     settings = Settings()
     if args.align:
-        settings.transform = np.load(args.align)
+        settings.to_scene = np.load(args.align)
     if args.pi:
-        source = PiPair(width=args.width, height=args.height)
+        source = PiPair(infrared_port=None if args.one_camera else 1, width=args.width, height=args.height)
     else:
         source = WebcamPair(args.scene, args.infrared, args.width, args.height)
     listener = Listener(Roster())
@@ -75,7 +77,7 @@ def main() -> None:
 
         Uplink(outbox, args.relay, os.environ["BLACKOUT_KEY"]).start()
     try:
-        run(source, listener, Pipeline(PeopleDetector(), settings), outbox, args.show)
+        run(source, listener, Pipeline(settings=settings, eyes=Background(PeopleDetector())), outbox, args.show)
     finally:
         source.close()
         listener.stop()

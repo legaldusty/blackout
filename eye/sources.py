@@ -41,7 +41,7 @@ class PiPair:
     def __init__(
         self,
         scene_port: int = 0,
-        infrared_port: int = 1,
+        infrared_port: int | None = 1,
         width: int = 1280,
         height: int = 720,
         infrared_exposure_us: int = 4000,
@@ -50,7 +50,7 @@ class PiPair:
         from picamera2 import Picamera2
 
         self._scene = Picamera2(scene_port)
-        self._infrared = Picamera2(infrared_port)
+        self._infrared = None if infrared_port is None else Picamera2(infrared_port)
         frame_time = (33333, 33333)
         self._scene.configure(
             self._scene.create_video_configuration(
@@ -58,27 +58,30 @@ class PiPair:
                 controls={"FrameDurationLimits": frame_time},
             )
         )
-        self._infrared.configure(
-            self._infrared.create_video_configuration(
-                main={"size": (width, height), "format": "YUV420"},
-                controls={
-                    "FrameDurationLimits": frame_time,
-                    "AeEnable": False,
-                    "ExposureTime": infrared_exposure_us,
-                    "AnalogueGain": infrared_gain,
-                },
-            )
-        )
         self._height = height
         self._scene.start()
-        self._infrared.start()
+        if self._infrared is not None:
+            self._infrared.configure(
+                self._infrared.create_video_configuration(
+                    main={"size": (width, height), "format": "YUV420"},
+                    controls={
+                        "FrameDurationLimits": frame_time,
+                        "AeEnable": False,
+                        "ExposureTime": infrared_exposure_us,
+                        "AnalogueGain": infrared_gain,
+                    },
+                )
+            )
+            self._infrared.start()
 
     def read(self):
-        scene = self._scene.capture_array("main")
+        scene = np.ascontiguousarray(self._scene.capture_array("main"))
+        if self._infrared is None:
+            return time.monotonic(), scene, scene.max(axis=2)
         infrared = self._infrared.capture_array("main")
-        seconds = time.monotonic()
-        return seconds, np.ascontiguousarray(scene), np.ascontiguousarray(infrared[: self._height])
+        return time.monotonic(), scene, np.ascontiguousarray(infrared[: self._height])
 
     def close(self) -> None:
         self._scene.stop()
-        self._infrared.stop()
+        if self._infrared is not None:
+            self._infrared.stop()
