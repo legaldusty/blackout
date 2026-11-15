@@ -51,8 +51,48 @@ class WebcamSpots:
         self.capture.release()
 
 
+def solve(source: np.ndarray, target: np.ndarray, full: bool) -> np.ndarray:
+    ones = np.ones(len(source))
+    if full:
+        design = np.column_stack([source, ones])
+        found = np.linalg.lstsq(design, target, rcond=None)[0]
+        return np.vstack([found.T, [0.0, 0.0, 1.0]])
+    x, y = source[:, 0], source[:, 1]
+    zeros = np.zeros(len(source))
+    design = np.vstack([np.column_stack([x, -y, ones, zeros]), np.column_stack([y, x, zeros, ones])])
+    a, b, tx, ty = np.linalg.lstsq(design, np.concatenate([target[:, 0], target[:, 1]]), rcond=None)[0]
+    return np.array([[a, -b, tx], [b, a, ty], [0.0, 0.0, 1.0]])
+
+
+def fit(data: np.ndarray):
+    source, target = data[:, :2], data[:, 2:]
+    spread = source.max(axis=0) - source.min(axis=0)
+    full = len(data) >= 14 and spread[0] > 300 and spread[1] > 200
+    kept = np.ones(len(data), dtype=bool)
+    for _ in range(6):
+        matrix = solve(source[kept], target[kept], full)
+        moved = source @ matrix[:2, :2].T + matrix[:2, 2]
+        errors = np.hypot(*(moved - target).T)
+        fresh = errors <= max(2.0 * float(np.median(errors[kept])), 12.0)
+        if fresh.sum() < 6 or (fresh == kept).all():
+            break
+        kept = fresh
+    return matrix, kept, errors, full
+
+
+def report(data: np.ndarray, out: str) -> None:
+    matrix, kept, errors, full = fit(data)
+    source = data[:, :2]
+    kind = "wide" if full else "narrow"
+    print(f"{kind} fit from {int(kept.sum())} of {len(data)} pairs, typical miss {np.median(errors[kept]):.1f} px, worst kept {errors[kept].max():.1f} px")
+    print(f"tag picture covered x {source[:, 0].min():.0f} to {source[:, 0].max():.0f}, y {source[:, 1].min():.0f} to {source[:, 1].max():.0f}")
+    np.save(out, matrix)
+    print("saved", out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--pairs", default="")
     parser.add_argument("--seconds", type=float, default=45.0)
     parser.add_argument("--exposure", type=int, default=60)
     parser.add_argument("--web-level", type=int, default=150)
@@ -60,6 +100,9 @@ def main() -> None:
     parser.add_argument("--upside-down", action="store_true")
     parser.add_argument("--out", default=str(HOME / "align.npy"))
     args = parser.parse_args()
+    if args.pairs:
+        report(np.load(args.pairs), args.out)
+        return
 
     from picamera2 import Picamera2
 
@@ -118,24 +161,8 @@ def main() -> None:
         print("not enough pairs to line up the cameras")
         return
     data = np.array(pairs, dtype=np.float64)
-    source, target = data[:, :2], data[:, 2:]
-    spread = source.max(axis=0) - source.min(axis=0)
-    if len(pairs) >= 14 and spread.min() > 150:
-        matrix, mask = cv2.findHomography(source, target, cv2.RANSAC, 15.0)
-        kind = "full"
-    else:
-        affine, mask = cv2.estimateAffine2D(source, target, method=cv2.RANSAC, ransacReprojThreshold=15.0)
-        matrix = np.vstack([affine, [0.0, 0.0, 1.0]])
-        kind = "simple"
-    moved = np.hstack([source, np.ones((len(source), 1))]) @ matrix.T
-    moved = moved[:, :2] / moved[:, 2:3]
-    errors = np.hypot(*(moved - target).T)
-    kept = mask.ravel().astype(bool)
-    print(f"{kind} fit from {int(kept.sum())} of {len(pairs)} pairs, typical miss {np.median(errors[kept]):.1f} px, worst kept {errors[kept].max():.1f} px")
-    print(f"tag picture covered x {source[:, 0].min():.0f} to {source[:, 0].max():.0f}, y {source[:, 1].min():.0f} to {source[:, 1].max():.0f}")
-    np.save(args.out, matrix)
-    print("saved", args.out)
-
+    np.save(str(scratch / "lineup_pairs.npy"), data)
+    report(data, args.out)
 
 if __name__ == "__main__":
     main()
