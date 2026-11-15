@@ -3,6 +3,7 @@ import hmac
 import json
 import mimetypes
 import os
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -130,8 +131,19 @@ def _handler(outbox: Outbox, key: str | None, site: Path | None):
     return Handler
 
 
+class BothServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+    def server_bind(self) -> None:
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
 def start(outbox: Outbox, port: int, host: str = "0.0.0.0", key: str | None = None, site: Path | None = SITE) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((host, port), _handler(outbox, key, site))
+    if host == "0.0.0.0" and socket.has_ipv6:
+        server = BothServer(("::", port), _handler(outbox, key, site))
+    else:
+        server = ThreadingHTTPServer((host, port), _handler(outbox, key, site))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
